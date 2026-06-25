@@ -9,7 +9,7 @@ public sealed class ProjectParams
     public decimal FloorHeightM { get; set; }
     public List<decimal> TemplateHeightsM { get; set; } = [];
     public decimal WallThicknessMm { get; set; }
-    public Dictionary<string, decimal> CustomParameters { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, decimal> CustomParameters { get; set; } = [];
     public string Note { get; set; } = "";
     public DateTime UpdatedAt { get; set; } = DateTime.Now;
 

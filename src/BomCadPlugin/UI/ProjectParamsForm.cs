@@ -1,4 +1,5 @@
 using BomCadPlugin.Core.Models;
+using BomCadPlugin.Core.Services;
 
 namespace BomCadPlugin.UI;
 
@@ -51,9 +52,7 @@ internal sealed class ProjectParamsForm : Form
         _selectedSystem.Items.AddRange(_productSystems.Select(system => system.Name).Cast<object>().ToArray());
         if (_selectedSystem.Items.Count > 0)
         {
-            var selected = string.IsNullOrWhiteSpace(ProjectParams.SelectedSystemName)
-                ? _selectedSystem.Items[0]?.ToString()
-                : ProjectParams.SelectedSystemName;
+            var selected = ResolveInitialSystemName();
             _selectedSystem.SelectedItem = _selectedSystem.Items.Contains(selected) ? selected : _selectedSystem.Items[0];
         }
 
@@ -104,7 +103,7 @@ internal sealed class ProjectParamsForm : Form
             FloorHeightM = _floorHeight.Value,
             TemplateHeightsM = templateHeights,
             WallThicknessMm = _wallThickness.Value,
-            CustomParameters = _customParameterBoxes.ToDictionary(pair => pair.Key, pair => pair.Value.Value, StringComparer.OrdinalIgnoreCase),
+            CustomParameters = _customParameterBoxes.ToDictionary(pair => NormalizeParameterKey(pair.Key), pair => pair.Value.Value),
             Note = _note.Text.Trim(),
             UpdatedAt = DateTime.Now
         };
@@ -191,22 +190,72 @@ internal sealed class ProjectParamsForm : Form
             var box = NumberBox(-100000000, 100000000, SafeCustomValue(parameter));
             box.DecimalPlaces = 4;
             box.Width = 120;
-            _customParameterBoxes[parameter.Key] = box;
+            _customParameterBoxes[NormalizeParameterKey(parameter.Key)] = box;
 
-            var labelText = string.IsNullOrWhiteSpace(parameter.Unit)
-                ? $"{parameter.Name} ({parameter.Key})"
-                : $"{parameter.Name} ({parameter.Key}, {parameter.Unit})";
-            _customParameters.Controls.Add(new Label { Text = labelText, AutoSize = true }, 0, i);
+            _customParameters.Controls.Add(new Label
+            {
+                Text = SystemParameterDisplayFormatter.FormatInputLabel(parameter),
+                AutoSize = true,
+                MaximumSize = new Size(260, 0)
+            }, 0, i);
             _customParameters.Controls.Add(box, 1, i);
         }
     }
 
+    private string? ResolveInitialSystemName()
+    {
+        if (!string.IsNullOrWhiteSpace(ProjectParams.SelectedSystemName))
+        {
+            return ProjectParams.SelectedSystemName;
+        }
+
+        return _productSystems.FirstOrDefault(system => system.Parameters.Count > 0)?.Name
+            ?? _selectedSystem.Items[0]?.ToString();
+    }
+
     private decimal SafeCustomValue(SystemParameterDefinition parameter)
     {
-        return ProjectParams.CustomParameters.TryGetValue(parameter.Key, out var value)
+        return TryGetCustomParameterValue(parameter.Key, out var value)
             ? value
             : parameter.DefaultValue;
     }
+
+    private bool TryGetCustomParameterValue(string key, out decimal value)
+    {
+        var normalizedKey = NormalizeParameterKey(key);
+        if (ProjectParams.CustomParameters.TryGetValue(normalizedKey, out value))
+        {
+            return true;
+        }
+
+        foreach (var parameter in ProjectParams.CustomParameters)
+        {
+            if (string.Equals(parameter.Key, normalizedKey, StringComparison.OrdinalIgnoreCase))
+            {
+                value = parameter.Value;
+                return true;
+            }
+        }
+
+        value = 0;
+        return false;
+    }
+
+    private static Dictionary<string, decimal> NormalizeCustomParameters(Dictionary<string, decimal> parameters)
+    {
+        var normalized = new Dictionary<string, decimal>();
+        foreach (var parameter in parameters)
+        {
+            if (!string.IsNullOrWhiteSpace(parameter.Key))
+            {
+                normalized[NormalizeParameterKey(parameter.Key)] = parameter.Value;
+            }
+        }
+
+        return normalized;
+    }
+
+    private static string NormalizeParameterKey(string key) => key.Trim().ToLowerInvariant();
 
     private static List<decimal> ResolveTemplateHeights(ProjectParams projectParams)
     {
@@ -234,7 +283,7 @@ internal sealed class ProjectParamsForm : Form
             FloorHeightMm = projectParams.FloorHeightMm,
             TemplateHeightMm = projectParams.TemplateHeightMm,
             WallThicknessMm = projectParams.WallThicknessMm,
-            CustomParameters = new Dictionary<string, decimal>(projectParams.CustomParameters, StringComparer.OrdinalIgnoreCase),
+            CustomParameters = NormalizeCustomParameters(projectParams.CustomParameters),
             Note = projectParams.Note,
             UpdatedAt = projectParams.UpdatedAt
         };

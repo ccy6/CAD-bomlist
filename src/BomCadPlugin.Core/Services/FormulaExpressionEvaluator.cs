@@ -100,7 +100,7 @@ public sealed class FormulaExpressionEvaluator
                 return variableValue;
             }
 
-            throw new FormatException($"未知参数：{identifier}");
+            throw new FormatException($"参数未定义或未赋值：{identifier}");
         }
 
         return ParseNumber();
@@ -154,7 +154,7 @@ public sealed class FormulaExpressionEvaluator
             _position++;
         }
 
-        return _expression[start.._position].ToLowerInvariant();
+        return _expression[start.._position];
     }
 
     private static decimal EvaluateFunction(string name, List<decimal> args)

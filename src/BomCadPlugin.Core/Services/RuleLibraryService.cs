@@ -125,6 +125,7 @@ public sealed class RuleLibraryService
         foreach (var system in library.ProductSystems)
         {
             NormalizeSystem(system);
+            EnsureReferenceCodes(system.Rules);
         }
 
         foreach (var rule in library.Rules)
@@ -149,6 +150,11 @@ public sealed class RuleLibraryService
             }
         }
 
+        foreach (var system in library.ProductSystems)
+        {
+            EnsureReferenceCodes(system.Rules);
+        }
+
         library.Rules = library.ProductSystems
             .SelectMany(system =>
             {
@@ -168,10 +174,21 @@ public sealed class RuleLibraryService
     {
         system.Id = string.IsNullOrWhiteSpace(system.Id) ? Guid.NewGuid().ToString("N") : system.Id;
         system.Name = NormalizeSystemName(system.Name);
+        var parameterKeyMap = system.Parameters
+            .Where(parameter => !string.IsNullOrWhiteSpace(parameter.Key))
+            .Select(parameter => new
+            {
+                Original = parameter.Key.Trim(),
+                Normalized = NormalizeParameterKey(parameter.Key)
+            })
+            .Where(parameter => !string.Equals(parameter.Original, parameter.Normalized, StringComparison.Ordinal))
+            .GroupBy(parameter => parameter.Original, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Last().Normalized, StringComparer.Ordinal);
+
         system.Parameters = system.Parameters
             .Where(parameter => !string.IsNullOrWhiteSpace(parameter.Key))
             .Select(NormalizeParameter)
-            .GroupBy(parameter => parameter.Key, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(parameter => parameter.Key, StringComparer.Ordinal)
             .Select(group => group.Last())
             .ToList();
 
@@ -179,16 +196,49 @@ public sealed class RuleLibraryService
         {
             rule.SystemName = system.Name;
             NormalizeRule(rule);
+            rule.Formula = RewriteFormulaIdentifiers(rule.Formula, parameterKeyMap);
         }
     }
 
     private static SystemParameterDefinition NormalizeParameter(SystemParameterDefinition parameter)
     {
-        parameter.Key = parameter.Key.Trim();
+        parameter.Key = NormalizeParameterKey(parameter.Key);
         parameter.Name = string.IsNullOrWhiteSpace(parameter.Name) ? parameter.Key : parameter.Name.Trim();
         parameter.Unit = parameter.Unit?.Trim() ?? "";
         parameter.Description = parameter.Description?.Trim() ?? "";
         return parameter;
+    }
+
+    private static string NormalizeParameterKey(string key) => key.Trim().ToLowerInvariant();
+
+    private static string RewriteFormulaIdentifiers(string formula, IReadOnlyDictionary<string, string> replacements)
+    {
+        if (string.IsNullOrWhiteSpace(formula) || replacements.Count == 0)
+        {
+            return formula;
+        }
+
+        var result = new System.Text.StringBuilder(formula.Length);
+        for (var i = 0; i < formula.Length;)
+        {
+            if (!char.IsLetter(formula[i]) && formula[i] != '_')
+            {
+                result.Append(formula[i]);
+                i++;
+                continue;
+            }
+
+            var start = i;
+            while (i < formula.Length && (char.IsLetterOrDigit(formula[i]) || formula[i] == '_'))
+            {
+                i++;
+            }
+
+            var identifier = formula[start..i];
+            result.Append(replacements.TryGetValue(identifier, out var replacement) ? replacement : identifier);
+        }
+
+        return result.ToString();
     }
 
     private static ComponentRule? FindMatchingRule(IEnumerable<ComponentRule> rules, ComponentRule target)
@@ -235,6 +285,7 @@ public sealed class RuleLibraryService
             GroupName = rule.GroupName,
             BlockName = rule.BlockName,
             ComponentName = rule.ComponentName,
+            ReferenceCode = rule.ReferenceCode,
             Unit = rule.Unit,
             BaseQtyPerBlock = rule.BaseQtyPerBlock,
             CalculationMode = rule.CalculationMode,
@@ -255,6 +306,7 @@ public sealed class RuleLibraryService
         target.GroupName = source.GroupName;
         target.BlockName = source.BlockName;
         target.ComponentName = source.ComponentName;
+        target.ReferenceCode = source.ReferenceCode;
         target.Unit = source.Unit;
         target.BaseQtyPerBlock = source.BaseQtyPerBlock;
         target.CalculationMode = source.CalculationMode;
@@ -273,12 +325,55 @@ public sealed class RuleLibraryService
         rule.ComponentName = string.IsNullOrWhiteSpace(rule.ComponentName)
             ? (string.IsNullOrWhiteSpace(rule.BlockName) ? "未命名构件" : rule.BlockName)
             : rule.ComponentName.Trim();
+        rule.ReferenceCode = rule.ReferenceCode?.Trim() ?? "";
         rule.Unit = string.IsNullOrWhiteSpace(rule.Unit) ? "个" : rule.Unit.Trim();
-        rule.Formula = ResolveFormula(rule).Trim().ToLowerInvariant();
+        rule.Formula = ResolveFormula(rule).Trim();
         rule.CalculationMode = "Formula";
         rule.BaseQtyPerBlock = rule.BaseQtyPerBlock <= 0 ? 1 : rule.BaseQtyPerBlock;
         rule.SpacingMm = rule.SpacingMm <= 0 ? 600 : rule.SpacingMm;
         rule.LibraryVersion = RuleLibraryServiceVersion.Current;
+    }
+
+    private static void EnsureReferenceCodes(List<ComponentRule> rules)
+    {
+        var usedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rule in rules)
+        {
+            if (!string.IsNullOrWhiteSpace(rule.ReferenceCode) && usedCodes.Add(rule.ReferenceCode.Trim()))
+            {
+                rule.ReferenceCode = rule.ReferenceCode.Trim();
+                continue;
+            }
+
+            rule.ReferenceCode = NextReferenceCode(usedCodes);
+            usedCodes.Add(rule.ReferenceCode);
+        }
+    }
+
+    private static string NextReferenceCode(IReadOnlySet<string> usedCodes)
+    {
+        for (var index = 0; ; index++)
+        {
+            var code = ToSpreadsheetColumnName(index);
+            if (!usedCodes.Contains(code))
+            {
+                return code;
+            }
+        }
+    }
+
+    private static string ToSpreadsheetColumnName(int zeroBasedIndex)
+    {
+        var value = zeroBasedIndex + 1;
+        var chars = new Stack<char>();
+        while (value > 0)
+        {
+            value--;
+            chars.Push((char)('A' + value % 26));
+            value /= 26;
+        }
+
+        return new string(chars.ToArray());
     }
 
     private static string ResolveFormula(ComponentRule rule)

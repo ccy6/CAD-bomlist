@@ -9,6 +9,7 @@ public sealed class ComponentRule
     public string GroupName { get; set; } = "主体构件";
     public string BlockName { get; set; } = "";
     public string ComponentName { get; set; } = "";
+    public string ReferenceCode { get; set; } = "";
     public string Unit { get; set; } = "个";
     public decimal BaseQtyPerBlock { get; set; } = 1;
     public string Formula { get; set; } = "1";

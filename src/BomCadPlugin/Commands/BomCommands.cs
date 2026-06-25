@@ -66,7 +66,7 @@ public sealed class BomCommands : IExtensionApplication
 
         var config = _configService.Load(configPath);
         var library = _ruleLibraryService.LoadOrCreate(config.Rules);
-        using var form = new AddComponentRuleForm(SelectBlockName, NormalizeSystems(library.ProductSystems.Select(s => s.Name)), BuildPreviewProjectParams(config.Project, library.ProductSystems));
+        using var form = new AddComponentRuleForm(SelectBlockName, library.ProductSystems, BuildPreviewProjectParams(config.Project, library.ProductSystems));
         if (CadApplication.ShowModalDialog(form) != System.Windows.Forms.DialogResult.OK)
         {
             return;
@@ -259,22 +259,6 @@ public sealed class BomCommands : IExtensionApplication
                string.Equals(left.ComponentName, right.ComponentName, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static List<string> NormalizeSystems(IEnumerable<string> systems)
-    {
-        var normalized = systems
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .Select(s => s.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (normalized.Count == 0)
-        {
-            normalized.Add("默认体系");
-        }
-
-        return normalized;
-    }
-
     private static IReadOnlyList<ComponentRule> ResolveProjectRules(ProjectParams project, RuleLibrary library)
     {
         if (!string.IsNullOrWhiteSpace(project.SelectedSystemName))
@@ -300,19 +284,35 @@ public sealed class BomCommands : IExtensionApplication
             WallThicknessMm = project.WallThicknessMm,
             Note = project.Note,
             UpdatedAt = project.UpdatedAt,
-            CustomParameters = new Dictionary<string, decimal>(project.CustomParameters, StringComparer.OrdinalIgnoreCase)
+            CustomParameters = NormalizeCustomParameters(project.CustomParameters)
         };
 
         foreach (var parameter in productSystems.SelectMany(system => system.Parameters))
         {
-            if (!string.IsNullOrWhiteSpace(parameter.Key) && !preview.CustomParameters.ContainsKey(parameter.Key))
+            if (!string.IsNullOrWhiteSpace(parameter.Key) && !preview.CustomParameters.ContainsKey(NormalizeParameterKey(parameter.Key)))
             {
-                preview.CustomParameters[parameter.Key] = parameter.DefaultValue;
+                preview.CustomParameters[NormalizeParameterKey(parameter.Key)] = parameter.DefaultValue;
             }
         }
 
         return preview;
     }
+
+    private static Dictionary<string, decimal> NormalizeCustomParameters(Dictionary<string, decimal> parameters)
+    {
+        var normalized = new Dictionary<string, decimal>();
+        foreach (var parameter in parameters)
+        {
+            if (!string.IsNullOrWhiteSpace(parameter.Key))
+            {
+                normalized[NormalizeParameterKey(parameter.Key)] = parameter.Value;
+            }
+        }
+
+        return normalized;
+    }
+
+    private static string NormalizeParameterKey(string key) => key.Trim().ToLowerInvariant();
 
     private static string? SelectBlockName()
     {

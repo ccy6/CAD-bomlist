@@ -37,7 +37,7 @@ public sealed class StatisticsServiceTests
     }
 
     [Fact]
-    public void BuildResult_UsesFormulaAsCalculationFactor()
+    public void BuildResult_WithBlockRule_UsesFormulaAsPerBlockCoefficient()
     {
         var service = new StatisticsService();
         var rule = new ComponentRule
@@ -80,9 +80,9 @@ public sealed class StatisticsServiceTests
         var service = new StatisticsService();
         var project = new ProjectParams
         {
-            CustomParameters = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            CustomParameters = new Dictionary<string, decimal>
             {
-                ["L"] = 120
+                ["l"] = 120
             }
         };
         var rule = new ComponentRule
@@ -91,7 +91,7 @@ public sealed class StatisticsServiceTests
             GroupName = "围护构件",
             ComponentName = "围护钢管",
             Unit = "m",
-            Formula = "L * 2"
+            Formula = "l * 2"
         };
 
         var result = service.BuildResult([], project, [rule]);
@@ -101,6 +101,65 @@ public sealed class StatisticsServiceTests
         Assert.Equal("围护构件", item.GroupName);
         Assert.Equal(0, item.PlaneCount);
         Assert.Equal(240, item.TotalQty);
+    }
+
+    [Fact]
+    public void CalculateFactor_WithLowercaseFormula_UsesLowercaseCustomParameter()
+    {
+        var service = new StatisticsService();
+        var project = new ProjectParams
+        {
+            CustomParameters = new Dictionary<string, decimal>
+            {
+                ["l"] = 12
+            }
+        };
+        var rule = new ComponentRule { Formula = "l * 2" };
+
+        var factor = service.CalculateFactor(rule, project);
+
+        Assert.Equal(24, factor);
+    }
+
+    [Fact]
+    public void BuildResult_WhenReferenceCodeDiffersFromLowercaseParameterByCase_KeepsBothVariables()
+    {
+        var service = new StatisticsService();
+        var project = new ProjectParams
+        {
+            CustomParameters = new Dictionary<string, decimal>
+            {
+                ["l"] = 100
+            }
+        };
+        var rules = new[]
+        {
+            new ComponentRule { BlockName = "BRACE", ComponentName = "Brace", ReferenceCode = "L", Formula = "count*1.5" },
+            new ComponentRule { ComponentName = "Pipe", Formula = "l*2" },
+            new ComponentRule { ComponentName = "Bare Brace Consumer", Formula = "L*2" },
+            new ComponentRule { ComponentName = "Brace Consumer", Formula = "L_raw + L_count + L_qty" }
+        };
+
+        var result = service.BuildResult(["BRACE"], project, rules);
+
+        var pipe = result.Items.Single(item => item.ComponentName == "Pipe");
+        var bareBraceConsumer = result.Items.Single(item => item.ComponentName == "Bare Brace Consumer");
+        var braceConsumer = result.Items.Single(item => item.ComponentName == "Brace Consumer");
+        Assert.Equal(200, pipe.TotalQty);
+        Assert.Equal(3, bareBraceConsumer.TotalQty);
+        Assert.Equal(5, braceConsumer.TotalQty);
+    }
+
+    [Fact]
+    public void TryCalculateFactor_WithMissingParameter_PreservesInputCasingInError()
+    {
+        var service = new StatisticsService();
+        var rule = new ComponentRule { Formula = "Q1 * 3" };
+
+        var success = service.TryCalculateFactor(rule, new ProjectParams(), out _, out var error);
+
+        Assert.False(success);
+        Assert.Contains("参数未定义或未赋值：Q1", error);
     }
 
     [Fact]
@@ -119,8 +178,94 @@ public sealed class StatisticsServiceTests
 
         var item = Assert.Single(result.Items);
         Assert.Equal(2, item.PlaneCount);
-        Assert.Equal(3, item.CalculationFactor);
+        Assert.Equal(6, item.CalculationFactor);
         Assert.Equal(6, item.TotalQty);
+    }
+
+    [Fact]
+    public void BuildResult_WhenFormulaReferencesComponentCodes_UsesReferencedTotals()
+    {
+        var service = new StatisticsService();
+        var rules = new[]
+        {
+            new ComponentRule { BlockName = "PANEL_1000", ComponentName = "Panel 1000", ReferenceCode = "P1000", Formula = "count" },
+            new ComponentRule { BlockName = "PANEL_750", ComponentName = "Panel 750", ReferenceCode = "P750", Formula = "count" },
+            new ComponentRule { BlockName = "PANEL_500", ComponentName = "Panel 500", ReferenceCode = "P500", Formula = "count" },
+            new ComponentRule { BlockName = "PANEL_250", ComponentName = "Panel 250", ReferenceCode = "P250", Formula = "count" },
+            new ComponentRule { ComponentName = "Panel Connector", Formula = "P1000*2 + P750*2 + P500*2 + P250" }
+        };
+
+        var result = service.BuildResult(
+            ["PANEL_1000", "PANEL_1000", "PANEL_750", "PANEL_500", "PANEL_250", "PANEL_250"],
+            new ProjectParams(),
+            rules);
+
+        var connector = result.Items.Single(item => item.ComponentName == "Panel Connector");
+        Assert.Equal(10, connector.TotalQty);
+        Assert.Equal("", connector.CalculationError);
+    }
+
+    [Fact]
+    public void BuildResult_WhenFormulaReferencesComponentCode_UsesUnroundedReferencedCalculation()
+    {
+        var service = new StatisticsService();
+        var rules = new[]
+        {
+            new ComponentRule { BlockName = "ROD", ComponentName = "Tie Rod", ReferenceCode = "J", Formula = "count*2.5" },
+            new ComponentRule { ComponentName = "Pipe", Formula = "J*2" }
+        };
+
+        var result = service.BuildResult(["ROD"], new ProjectParams(), rules);
+
+        var pipe = result.Items.Single(item => item.ComponentName == "Pipe");
+        Assert.Equal(5, pipe.TotalQty);
+        Assert.Equal("", pipe.CalculationError);
+    }
+
+    [Fact]
+    public void BuildResult_WhenFormulaReferencesComponentCodeCountAndQty_UsesPlaneCountAndRoundedQuantity()
+    {
+        var service = new StatisticsService();
+        var rules = new[]
+        {
+            new ComponentRule { BlockName = "ROD", ComponentName = "Tie Rod", ReferenceCode = "J", Formula = "count*2.5" },
+            new ComponentRule { ComponentName = "Auxiliary", Formula = "J_count + J_qty" }
+        };
+
+        var result = service.BuildResult(["ROD"], new ProjectParams(), rules);
+
+        var auxiliary = result.Items.Single(item => item.ComponentName == "Auxiliary");
+        Assert.Equal(4, auxiliary.TotalQty);
+        Assert.Equal("", auxiliary.CalculationError);
+    }
+
+    [Fact]
+    public void BuildResult_WhenOldUppercaseCustomParameterIsProvided_UsesLowercaseIdentifierForParameter()
+    {
+        var service = new StatisticsService();
+        var project = new ProjectParams
+        {
+            CustomParameters = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["L"] = 100
+            }
+        };
+        var rules = new[]
+        {
+            new ComponentRule { BlockName = "BRACE", ComponentName = "Brace", ReferenceCode = "L", Formula = "count*1.5" },
+            new ComponentRule { ComponentName = "Pipe", Formula = "l*2" },
+            new ComponentRule { ComponentName = "Bare Brace Consumer", Formula = "L*2" },
+            new ComponentRule { ComponentName = "Brace Count Consumer", Formula = "L_raw + L_count + L_qty" }
+        };
+
+        var result = service.BuildResult(["BRACE"], project, rules);
+
+        var pipe = result.Items.Single(item => item.ComponentName == "Pipe");
+        var bareBraceConsumer = result.Items.Single(item => item.ComponentName == "Bare Brace Consumer");
+        var braceCountConsumer = result.Items.Single(item => item.ComponentName == "Brace Count Consumer");
+        Assert.Equal(200, pipe.TotalQty);
+        Assert.Equal(3, bareBraceConsumer.TotalQty);
+        Assert.Equal(5, braceCountConsumer.TotalQty);
     }
 
     [Fact]

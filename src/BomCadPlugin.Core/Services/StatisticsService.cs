@@ -19,7 +19,7 @@ public sealed class StatisticsService
             .GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
 
-        var result = new BomStatResult();
+        var pendingItems = new List<PendingStatItem>();
         foreach (var rule in ruleList)
         {
             var hasBlock = !string.IsNullOrWhiteSpace(rule.BlockName);
@@ -33,39 +33,49 @@ public sealed class StatisticsService
                 }
             }
 
-            var variables = BuildFormulaVariables(project);
-            variables["count"] = planeCount;
-
-            var calculationError = "";
-            if (!TryCalculateFactor(rule, variables, out var rawCalculation, out var error))
-            {
-                calculationError = error;
-            }
-
-            var formulaUsesCount = FormulaUsesCount(rule.Formula);
-            var calculationFactor = hasBlock && formulaUsesCount && planeCount > 0
-                ? rawCalculation / planeCount
-                : rawCalculation;
-            var totalQty = hasBlock && !formulaUsesCount
-                ? planeCount * rawCalculation
-                : rawCalculation;
-
-            result.Items.Add(new BomStatItem
-            {
-                ComponentName = string.IsNullOrWhiteSpace(rule.ComponentName) ? rule.BlockName : rule.ComponentName,
-                SystemName = string.IsNullOrWhiteSpace(rule.SystemName) ? "默认体系" : rule.SystemName,
-                GroupName = string.IsNullOrWhiteSpace(rule.GroupName) ? "主体构件" : rule.GroupName,
-                BlockName = rule.BlockName,
-                Unit = rule.Unit,
-                PlaneCount = planeCount,
-                BaseQtyPerBlock = 1,
-                CalculationFactor = calculationFactor,
-                TotalQty = totalQty,
-                Note = rule.Note,
-                CalculationError = calculationError
-            });
+            pendingItems.Add(new PendingStatItem(rule, planeCount, pendingItems.Count));
         }
 
+        var result = new BomStatResult();
+        var variables = BuildFormulaVariables(project);
+        var unresolved = pendingItems.ToList();
+        while (unresolved.Count > 0)
+        {
+            var resolvedThisPass = new List<PendingStatItem>();
+            foreach (var item in unresolved)
+            {
+                variables["count"] = item.PlaneCount;
+                if (!TryEvaluateFormula(item, variables, out var calculation, out _))
+                {
+                    continue;
+                }
+
+                result.Items.Add(BuildStatItem(item, calculation, ""));
+                AddReferenceVariables(variables, item, calculation);
+                resolvedThisPass.Add(item);
+            }
+
+            if (resolvedThisPass.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var item in resolvedThisPass)
+            {
+                unresolved.Remove(item);
+            }
+        }
+
+        foreach (var item in unresolved)
+        {
+            variables["count"] = item.PlaneCount;
+            _ = TryEvaluateFormula(item, variables, out var calculation, out var error);
+            result.Items.Add(BuildStatItem(item, calculation, error));
+        }
+
+        result.Items = result.Items
+            .OrderBy(item => pendingItems.FindIndex(pending => SameStatItem(pending, item)))
+            .ToList();
         return result;
     }
 
@@ -100,6 +110,68 @@ public sealed class StatisticsService
             error = $"公式计算失败：{ex.Message}";
             return false;
         }
+    }
+
+    private static bool TryEvaluateFormula(PendingStatItem item, Dictionary<string, decimal> variables, out FormulaCalculation calculation, out string error)
+    {
+        try
+        {
+            var rule = item.Rule;
+            var formula = ResolveFormula(rule);
+            var formulaValue = new FormulaExpressionEvaluator().Evaluate(formula, variables);
+            var formulaUsesCount = FormulaUsesCount(formula);
+            var hasBlock = !string.IsNullOrWhiteSpace(rule.BlockName);
+            var rawTotal = hasBlock && !formulaUsesCount
+                ? item.PlaneCount * formulaValue
+                : formulaValue;
+            calculation = new FormulaCalculation(rawTotal, Math.Ceiling(rawTotal), Math.Ceiling(formulaValue));
+            error = "";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            calculation = new FormulaCalculation(0, 0, 0);
+            error = ex.Message;
+            return false;
+        }
+    }
+
+    private static BomStatItem BuildStatItem(PendingStatItem pendingItem, FormulaCalculation calculation, string calculationError)
+    {
+        var rule = pendingItem.Rule;
+        return new BomStatItem
+        {
+            ComponentName = string.IsNullOrWhiteSpace(rule.ComponentName) ? rule.BlockName : rule.ComponentName,
+            SystemName = string.IsNullOrWhiteSpace(rule.SystemName) ? "默认体系" : rule.SystemName,
+            GroupName = string.IsNullOrWhiteSpace(rule.GroupName) ? "主体构件" : rule.GroupName,
+            BlockName = rule.BlockName,
+            Unit = rule.Unit,
+            PlaneCount = pendingItem.PlaneCount,
+            BaseQtyPerBlock = 1,
+            CalculationFactor = calculation.CalculationFactor,
+            TotalQty = calculation.RoundedValue,
+            Note = rule.Note,
+            CalculationError = calculationError
+        };
+    }
+
+    private static void AddReferenceVariables(Dictionary<string, decimal> variables, PendingStatItem item, FormulaCalculation calculation)
+    {
+        var rule = item.Rule;
+        if (!string.IsNullOrWhiteSpace(rule.ReferenceCode))
+        {
+            var referenceCode = rule.ReferenceCode.Trim();
+            variables.TryAdd(referenceCode, calculation.RawValue);
+            variables[$"{referenceCode}_raw"] = calculation.RawValue;
+            variables[$"{referenceCode}_count"] = item.PlaneCount;
+            variables[$"{referenceCode}_qty"] = calculation.RoundedValue;
+        }
+    }
+
+    private static bool SameStatItem(PendingStatItem pendingItem, BomStatItem item)
+    {
+        return string.Equals(pendingItem.Rule.ComponentName, item.ComponentName, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(pendingItem.Rule.BlockName, item.BlockName, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ResolveFormula(ComponentRule rule)
@@ -145,7 +217,7 @@ public sealed class StatisticsService
     private static Dictionary<string, decimal> BuildFormulaVariables(ProjectParams project)
     {
         var heightsM = ResolveTemplateHeights(project);
-        var variables = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+        var variables = new Dictionary<string, decimal>
         {
             ["n"] = heightsM.Count,
             ["h"] = heightsM.Sum(h => h * 1000),
@@ -162,12 +234,14 @@ public sealed class StatisticsService
         {
             if (!string.IsNullOrWhiteSpace(parameter.Key))
             {
-                variables[parameter.Key.Trim()] = parameter.Value;
+                variables[NormalizeParameterKey(parameter.Key)] = parameter.Value;
             }
         }
 
         return variables;
     }
+
+    private static string NormalizeParameterKey(string key) => key.Trim().ToLowerInvariant();
 
     private static bool FormulaUsesCount(string formula)
     {
@@ -176,10 +250,11 @@ public sealed class StatisticsService
             return false;
         }
 
-        for (var i = 0; i < formula.Length; i++)
+        for (var i = 0; i < formula.Length;)
         {
             if (!char.IsLetter(formula[i]) && formula[i] != '_')
             {
+                i++;
                 continue;
             }
 
@@ -190,7 +265,7 @@ public sealed class StatisticsService
             }
 
             var identifier = formula[start..i];
-            if (string.Equals(identifier, "count", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(identifier, "count", StringComparison.Ordinal))
             {
                 return true;
             }
@@ -200,4 +275,8 @@ public sealed class StatisticsService
     }
 
     private static string NormalizeBlockName(string blockName) => blockName.Trim();
+
+    private sealed record PendingStatItem(ComponentRule Rule, int PlaneCount, int Index);
+
+    private sealed record FormulaCalculation(decimal RawValue, decimal RoundedValue, decimal CalculationFactor);
 }

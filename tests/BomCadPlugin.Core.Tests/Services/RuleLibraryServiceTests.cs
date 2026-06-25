@@ -106,6 +106,7 @@ public sealed class RuleLibraryServiceTests : IDisposable
                             SystemName = "铝模体系",
                             GroupName = "围护构件",
                             ComponentName = "围护钢管",
+                            ReferenceCode = "PIPE",
                             Unit = "m",
                             Formula = "L * 2"
                         }
@@ -121,10 +122,41 @@ public sealed class RuleLibraryServiceTests : IDisposable
         var system = Assert.Single(loaded.ProductSystems);
         Assert.Equal("铝模体系", system.Name);
         var parameter = Assert.Single(system.Parameters);
-        Assert.Equal("L", parameter.Key);
+        Assert.Equal("l", parameter.Key);
         Assert.Equal("墙长", parameter.Name);
         Assert.Equal("m", parameter.Unit);
         Assert.Single(system.Rules);
+        Assert.Equal("PIPE", system.Rules[0].ReferenceCode);
+        Assert.Equal("l * 2", system.Rules[0].Formula);
+    }
+
+    [Fact]
+    public void SaveAndLoad_AssignsSpreadsheetReferenceCodesWhenMissing()
+    {
+        var service = CreateService([]);
+        var library = new RuleLibrary
+        {
+            ProductSystems =
+            [
+                new ProductSystem
+                {
+                    Name = "铝模体系",
+                    Rules =
+                    [
+                        new ComponentRule { ComponentName = "面板1000", Formula = "count" },
+                        new ComponentRule { ComponentName = "面板750", Formula = "count" },
+                        new ComponentRule { ComponentName = "连接件", Formula = "A*2+B*2" }
+                    ]
+                }
+            ]
+        };
+
+        service.Save(library);
+
+        var loaded = service.LoadOrCreate([]);
+
+        var codes = loaded.ProductSystems.Single().Rules.Select(rule => rule.ReferenceCode).ToList();
+        Assert.Equal(["A", "B", "C"], codes);
     }
 
     public void Dispose()
@@ -150,6 +182,7 @@ public sealed class RuleLibraryServiceTests : IDisposable
             SystemName = "默认体系",
             BlockName = blockName,
             Unit = "个",
+            ReferenceCode = "",
             CalculationMode = "Formula",
             Formula = formula
         };
@@ -163,6 +196,7 @@ public sealed class RuleLibraryServiceTests : IDisposable
             SystemName = rule.SystemName,
             BlockName = rule.BlockName,
             ComponentName = rule.ComponentName,
+            ReferenceCode = rule.ReferenceCode,
             GroupName = rule.GroupName,
             Unit = rule.Unit,
             BaseQtyPerBlock = rule.BaseQtyPerBlock,

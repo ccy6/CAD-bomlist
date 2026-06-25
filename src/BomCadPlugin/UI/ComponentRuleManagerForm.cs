@@ -9,6 +9,7 @@ internal sealed class ComponentRuleManagerForm : Form
 {
     private const string AllSystemsText = "全部体系";
     private const string CalculationFactorColumnName = "CalculationFactorPreview";
+    private const string ReferenceCodeColumnName = "ReferenceCode";
 
     private readonly Func<string?> _selectBlockName;
     private readonly ProjectParams _projectParams;
@@ -41,6 +42,7 @@ internal sealed class ComponentRuleManagerForm : Form
         Rules = rules.Select(CloneRule).ToList();
         ProductSystems = productSystems.Select(CloneSystem).ToList();
         EnsureSystemsFromRules();
+        EnsureReferenceCodes();
 
         Text = "构件产品库维护";
         Width = 1060;
@@ -87,7 +89,7 @@ internal sealed class ComponentRuleManagerForm : Form
         toolbar.Controls.Add(new Label { Text = "体系", AutoSize = true, Padding = new Padding(0, 8, 0, 0) });
         toolbar.Controls.Add(_systemFilter);
         toolbar.Controls.Add(ToolButton("新增体系", AddSystem));
-        toolbar.Controls.Add(ToolButton("添加参数", AddParameter));
+        toolbar.Controls.Add(ToolButton("参数维护", ManageParameters));
         toolbar.Controls.Add(ToolButton("添加构件", AddRule));
         toolbar.Controls.Add(ToolButton("从图中更新图块", PickBlockForSelectedRule));
         toolbar.Controls.Add(ToolButton("删除构件", DeleteRule));
@@ -124,6 +126,7 @@ internal sealed class ComponentRuleManagerForm : Form
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "体系", DataPropertyName = nameof(ComponentRule.SystemName), Width = 120 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "分组", DataPropertyName = nameof(ComponentRule.GroupName), Width = 110 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "构件名称", DataPropertyName = nameof(ComponentRule.ComponentName), Width = 140 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = ReferenceCodeColumnName, HeaderText = "引用代号", DataPropertyName = nameof(ComponentRule.ReferenceCode), Width = 90, ReadOnly = true });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "图块名", DataPropertyName = nameof(ComponentRule.BlockName), Width = 150 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "单位", DataPropertyName = nameof(ComponentRule.Unit), Width = 70 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "计算公式", DataPropertyName = nameof(ComponentRule.Formula), Width = 170 });
@@ -159,6 +162,7 @@ internal sealed class ComponentRuleManagerForm : Form
         NormalizeRule(rule);
         MarkModified(rule);
         AddSystemIfMissing(rule.SystemName);
+        EnsureReferenceCodes();
         RefreshSystemFilter(rule.SystemName);
         RefreshGrid();
     }
@@ -186,7 +190,7 @@ internal sealed class ComponentRuleManagerForm : Form
 
     private void AddRule()
     {
-        using var form = new AddComponentRuleForm(_selectBlockName, Systems, BuildPreviewProjectParams());
+        using var form = new AddComponentRuleForm(_selectBlockName, BuildProductSystemsForRuleForm(), BuildPreviewProjectParams());
         if (form.ShowDialog(this) != DialogResult.OK)
         {
             return;
@@ -198,7 +202,7 @@ internal sealed class ComponentRuleManagerForm : Form
 
     private void EditRule(ComponentRule rule)
     {
-        using var form = new AddComponentRuleForm(_selectBlockName, Systems, BuildPreviewProjectParams(), rule);
+        using var form = new AddComponentRuleForm(_selectBlockName, BuildProductSystemsForRuleForm(), BuildPreviewProjectParams(), rule);
         if (form.ShowDialog(this) != DialogResult.OK)
         {
             return;
@@ -215,34 +219,55 @@ internal sealed class ComponentRuleManagerForm : Form
         NormalizeRule(form.Rule);
         Rules[index] = form.Rule;
         AddSystemIfMissing(form.Rule.SystemName);
+        EnsureReferenceCodes();
         RefreshSystemFilter(form.Rule.SystemName);
         RefreshGrid();
     }
 
-    private ProjectParams BuildPreviewProjectParams()
+    private ProjectParams BuildPreviewProjectParams(string? systemName = null)
     {
         var project = new ProjectParams
         {
             ProjectName = _projectParams.ProjectName,
-            SelectedSystemName = _projectParams.SelectedSystemName,
+            SelectedSystemName = string.IsNullOrWhiteSpace(systemName) ? _projectParams.SelectedSystemName : systemName,
             FloorHeightM = _projectParams.FloorHeightM,
             TemplateHeightsM = [.. _projectParams.TemplateHeightsM],
             WallThicknessMm = _projectParams.WallThicknessMm,
             Note = _projectParams.Note,
             UpdatedAt = _projectParams.UpdatedAt,
-            CustomParameters = new Dictionary<string, decimal>(_projectParams.CustomParameters, StringComparer.OrdinalIgnoreCase)
+            CustomParameters = NormalizeCustomParameters(_projectParams.CustomParameters)
         };
 
-        foreach (var parameter in ProductSystems.SelectMany(system => system.Parameters))
+        var systems = string.IsNullOrWhiteSpace(systemName)
+            ? ProductSystems
+            : ProductSystems.Where(system => string.Equals(system.Name, systemName, StringComparison.OrdinalIgnoreCase));
+
+        foreach (var parameter in systems.SelectMany(system => system.Parameters))
         {
-            if (!string.IsNullOrWhiteSpace(parameter.Key) && !project.CustomParameters.ContainsKey(parameter.Key))
+            if (!string.IsNullOrWhiteSpace(parameter.Key) && !project.CustomParameters.ContainsKey(NormalizeParameterKey(parameter.Key)))
             {
-                project.CustomParameters[parameter.Key] = parameter.DefaultValue;
+                project.CustomParameters[NormalizeParameterKey(parameter.Key)] = parameter.DefaultValue;
             }
         }
 
         return project;
     }
+
+    private static Dictionary<string, decimal> NormalizeCustomParameters(Dictionary<string, decimal> parameters)
+    {
+        var normalized = new Dictionary<string, decimal>();
+        foreach (var parameter in parameters)
+        {
+            if (!string.IsNullOrWhiteSpace(parameter.Key))
+            {
+                normalized[NormalizeParameterKey(parameter.Key)] = parameter.Value;
+            }
+        }
+
+        return normalized;
+    }
+
+    private static string NormalizeParameterKey(string key) => key.Trim().ToLowerInvariant();
 
     private void AddSystem()
     {
@@ -267,49 +292,23 @@ internal sealed class ComponentRuleManagerForm : Form
         RefreshGrid();
     }
 
-    private void AddParameter()
+    private void ManageParameters()
     {
         var system = SelectedProductSystem();
         if (system is null)
         {
-            MessageBox.Show("请先选择或新增一个体系。", "添加参数", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show("请先选择或新增一个体系。", "参数维护", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
-        var key = PromptText("添加参数", "参数代号");
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            return;
-        }
-
-        key = key.Trim();
-        if (system.Parameters.Any(parameter => string.Equals(parameter.Key, key, StringComparison.OrdinalIgnoreCase)))
-        {
-            MessageBox.Show("该参数代号已存在。", "添加参数", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        var name = PromptText("添加参数", "参数名称");
-        if (string.IsNullOrWhiteSpace(name))
+        var rules = Rules.Where(rule => string.Equals(rule.SystemName, system.Name, StringComparison.OrdinalIgnoreCase));
+        using var form = new SystemParameterManagerForm(system.Name, system.Parameters, rules);
+        if (form.ShowDialog(this) != DialogResult.OK)
         {
             return;
         }
 
-        var unit = PromptText("添加参数", "单位") ?? "";
-        var defaultText = PromptText("添加参数", "默认值") ?? "0";
-        if (!decimal.TryParse(defaultText, out var defaultValue))
-        {
-            defaultValue = 0;
-        }
-
-        system.Parameters.Add(new SystemParameterDefinition
-        {
-            Key = key,
-            Name = name.Trim(),
-            Unit = unit.Trim(),
-            DefaultValue = defaultValue
-        });
-        MessageBox.Show($"参数 {key} 已添加到 {system.Name}。", "添加参数", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        system.Parameters = form.Parameters;
     }
 
     private void PickBlockForSelectedRule()
@@ -359,6 +358,7 @@ internal sealed class ComponentRuleManagerForm : Form
         }
 
         Rules.Remove(rule);
+        EnsureReferenceCodes();
         RefreshGrid();
     }
 
@@ -380,6 +380,7 @@ internal sealed class ComponentRuleManagerForm : Form
                 ? importedLibrary.Rules.Select(CloneRule).ToList()
                 : ProductSystems.SelectMany(system => system.Rules).Select(CloneRule).ToList();
             EnsureSystemsFromRules();
+            EnsureReferenceCodes();
             RefreshSystemFilter(AllSystemsText);
             RefreshGrid();
             return;
@@ -420,6 +421,7 @@ internal sealed class ComponentRuleManagerForm : Form
     {
         NormalizeRule(rule);
         AddSystemIfMissing(rule.SystemName);
+        EnsureReferenceCode(rule);
         var existing = Rules.FirstOrDefault(existingRule => SameRuleIdentity(existingRule, rule));
         if (existing is not null)
         {
@@ -437,6 +439,7 @@ internal sealed class ComponentRuleManagerForm : Form
         }
 
         RefreshSystemFilter(rule.SystemName);
+        EnsureReferenceCodes();
         RefreshGrid();
     }
 
@@ -454,6 +457,19 @@ internal sealed class ComponentRuleManagerForm : Form
         }
 
         return ProductSystems.FirstOrDefault(system => string.Equals(system.Name, selectedSystem, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private List<ProductSystem> BuildProductSystemsForRuleForm()
+    {
+        return ProductSystems.Select(system =>
+        {
+            var clone = CloneSystem(system);
+            clone.Rules = Rules
+                .Where(rule => string.Equals(rule.SystemName, clone.Name, StringComparison.OrdinalIgnoreCase))
+                .Select(CloneRule)
+                .ToList();
+            return clone;
+        }).ToList();
     }
 
     private void RefreshGrid()
@@ -530,6 +546,7 @@ internal sealed class ComponentRuleManagerForm : Form
         {
             NormalizeRule(rule);
         }
+        EnsureReferenceCodes();
 
         foreach (var system in ProductSystems)
         {
@@ -545,11 +562,76 @@ internal sealed class ComponentRuleManagerForm : Form
         rule.ComponentName = string.IsNullOrWhiteSpace(rule.ComponentName)
             ? (string.IsNullOrWhiteSpace(rule.BlockName) ? "未命名构件" : rule.BlockName)
             : rule.ComponentName.Trim();
+        rule.ReferenceCode = rule.ReferenceCode?.Trim() ?? "";
         rule.Unit = string.IsNullOrWhiteSpace(rule.Unit) ? "个" : rule.Unit.Trim();
         rule.CalculationMode = "Formula";
-        rule.Formula = string.IsNullOrWhiteSpace(rule.Formula) ? "1" : rule.Formula.Trim().ToLowerInvariant();
+        rule.Formula = string.IsNullOrWhiteSpace(rule.Formula) ? "1" : rule.Formula.Trim();
         rule.BaseQtyPerBlock = rule.BaseQtyPerBlock <= 0 ? 1 : rule.BaseQtyPerBlock;
         rule.SpacingMm = rule.SpacingMm <= 0 ? 600 : rule.SpacingMm;
+    }
+
+    private void EnsureReferenceCodes()
+    {
+        foreach (var systemName in Systems)
+        {
+            var systemRules = Rules
+                .Where(rule => string.Equals(rule.SystemName, systemName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var usedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var rule in systemRules)
+            {
+                if (!string.IsNullOrWhiteSpace(rule.ReferenceCode) && usedCodes.Add(rule.ReferenceCode.Trim()))
+                {
+                    rule.ReferenceCode = rule.ReferenceCode.Trim();
+                    continue;
+                }
+
+                rule.ReferenceCode = NextReferenceCode(usedCodes);
+                usedCodes.Add(rule.ReferenceCode);
+            }
+        }
+    }
+
+    private void EnsureReferenceCode(ComponentRule rule)
+    {
+        if (!string.IsNullOrWhiteSpace(rule.ReferenceCode))
+        {
+            rule.ReferenceCode = rule.ReferenceCode.Trim();
+            return;
+        }
+
+        var usedCodes = Rules
+            .Where(existing => string.Equals(existing.SystemName, rule.SystemName, StringComparison.OrdinalIgnoreCase))
+            .Select(existing => existing.ReferenceCode)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        rule.ReferenceCode = NextReferenceCode(usedCodes);
+    }
+
+    private static string NextReferenceCode(IReadOnlySet<string> usedCodes)
+    {
+        for (var index = 0; ; index++)
+        {
+            var code = ToSpreadsheetColumnName(index);
+            if (!usedCodes.Contains(code))
+            {
+                return code;
+            }
+        }
+    }
+
+    private static string ToSpreadsheetColumnName(int zeroBasedIndex)
+    {
+        var value = zeroBasedIndex + 1;
+        var chars = new Stack<char>();
+        while (value > 0)
+        {
+            value--;
+            chars.Push((char)('A' + value % 26));
+            value /= 26;
+        }
+
+        return new string(chars.ToArray());
     }
 
     private static bool SameRuleIdentity(ComponentRule left, ComponentRule right)
@@ -631,6 +713,7 @@ internal sealed class ComponentRuleManagerForm : Form
             GroupName = string.IsNullOrWhiteSpace(rule.GroupName) ? "主体构件" : rule.GroupName,
             BlockName = rule.BlockName,
             ComponentName = rule.ComponentName,
+            ReferenceCode = rule.ReferenceCode,
             Unit = rule.Unit,
             BaseQtyPerBlock = rule.BaseQtyPerBlock,
             CalculationMode = "Formula",

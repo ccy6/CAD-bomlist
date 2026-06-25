@@ -6,22 +6,29 @@ namespace BomCadPlugin.UI;
 internal sealed class AddComponentRuleForm : Form
 {
     private readonly Func<string?> _selectBlockName;
+    private readonly IReadOnlyList<ProductSystem> _productSystems;
     private readonly ProjectParams _projectParams;
-    private readonly StatisticsService _statisticsService = new();
     private readonly ComboBox _systemName = new() { DropDownStyle = ComboBoxStyle.DropDown, Width = 220 };
     private readonly TextBox _groupName = new() { Text = "主体构件", Width = 220 };
     private readonly TextBox _componentName = new() { Width = 220 };
     private readonly TextBox _blockName = new() { Width = 220 };
     private readonly ComboBox _unit = new() { DropDownStyle = ComboBoxStyle.DropDown, Width = 220 };
     private readonly TextBox _formula = new() { Text = "1", Width = 260 };
+    private readonly Label _parameterHelp = new() { AutoSize = true, MaximumSize = new Size(380, 0) };
     private readonly Label _preview = new() { AutoSize = true };
     private readonly TextBox _note = new() { Multiline = true, Height = 70, Width = 260 };
 
     public ComponentRule Rule { get; private set; } = new();
 
     public AddComponentRuleForm(Func<string?> selectBlockName, IEnumerable<string> systems, ProjectParams projectParams, ComponentRule? initialRule = null)
+        : this(selectBlockName, systems.Select(system => new ProductSystem { Name = system }), projectParams, initialRule)
+    {
+    }
+
+    public AddComponentRuleForm(Func<string?> selectBlockName, IEnumerable<ProductSystem> productSystems, ProjectParams projectParams, ComponentRule? initialRule = null)
     {
         _selectBlockName = selectBlockName;
+        _productSystems = productSystems.Select(CloneSystem).ToList();
         _projectParams = projectParams;
         Text = initialRule is null ? "添加构件" : "编辑构件";
         Width = 580;
@@ -32,10 +39,11 @@ internal sealed class AddComponentRuleForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
 
-        _systemName.Items.AddRange(systems.Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase).Cast<object>().ToArray());
+        _systemName.Items.AddRange(_productSystems.Select(system => system.Name).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase).Cast<object>().ToArray());
         _systemName.Text = _systemName.Items.Count > 0 ? _systemName.Items[0]?.ToString() : "默认体系";
         _unit.Items.AddRange(["个", "根", "套", "块", "件", "米", "m"]);
         _unit.Text = "个";
+        _systemName.TextChanged += (_, _) => UpdateParameterHelp();
         _formula.TextChanged += (_, _) => UpdatePreview();
 
         if (initialRule is not null)
@@ -78,14 +86,15 @@ internal sealed class AddComponentRuleForm : Form
         layout.Controls.Add(_unit, 1, 4);
         layout.Controls.Add(new Label { Text = "计算公式", AutoSize = true }, 0, 5);
         layout.Controls.Add(_formula, 1, 5);
-        layout.Controls.Add(new Label { Text = "可用参数", AutoSize = true }, 0, 6);
-        layout.Controls.Add(new Label { Text = ParameterHelpText(), AutoSize = true, MaximumSize = new Size(380, 0) }, 1, 6);
+        layout.Controls.Add(new Label { Text = "可用变量", AutoSize = true }, 0, 6);
+        layout.Controls.Add(_parameterHelp, 1, 6);
         layout.Controls.Add(new Label { Text = "公式预览", AutoSize = true }, 0, 7);
         layout.Controls.Add(_preview, 1, 7);
         layout.Controls.Add(new Label { Text = "备注", AutoSize = true }, 0, 8);
         layout.Controls.Add(_note, 1, 8);
 
         Controls.Add(ProjectParamsForm.FormShell(layout, Save));
+        UpdateParameterHelp();
         UpdatePreview();
     }
 
@@ -130,11 +139,12 @@ internal sealed class AddComponentRuleForm : Form
         Rule.SystemName = _systemName.Text.Trim();
         Rule.GroupName = string.IsNullOrWhiteSpace(_groupName.Text) ? "主体构件" : _groupName.Text.Trim();
         Rule.ComponentName = _componentName.Text.Trim();
+        Rule.ReferenceCode = ResolveReferenceCode();
         Rule.BlockName = _blockName.Text.Trim();
         Rule.Unit = _unit.Text.Trim();
         Rule.BaseQtyPerBlock = 1;
         Rule.CalculationMode = "Formula";
-        Rule.Formula = _formula.Text.Trim().ToLowerInvariant();
+        Rule.Formula = _formula.Text.Trim();
         Rule.Note = _note.Text.Trim();
         Rule.IsModified = true;
         Rule.UpdatedAt = DateTime.Now;
@@ -152,16 +162,8 @@ internal sealed class AddComponentRuleForm : Form
     {
         try
         {
-            new FormulaExpressionEvaluator().Evaluate(_formula.Text, SampleVariables(_projectParams));
-            if (!_statisticsService.TryCalculateFactor(new ComponentRule { Formula = _formula.Text }, _projectParams, out var coefficient, out var error))
-            {
-                message = error;
-                return false;
-            }
-
-            message = coefficient > 0 || _formula.Text.Trim() == "0"
-                ? coefficient.ToString("0.####")
-                : "公式有效，项目参数未完整";
+            var coefficient = Math.Ceiling(new FormulaExpressionEvaluator().Evaluate(_formula.Text, SampleVariables(_projectParams)));
+            message = coefficient.ToString("0.####");
             return true;
         }
         catch (Exception ex)
@@ -171,14 +173,14 @@ internal sealed class AddComponentRuleForm : Form
         }
     }
 
-    private static Dictionary<string, decimal> SampleVariables(ProjectParams projectParams)
+    private Dictionary<string, decimal> SampleVariables(ProjectParams projectParams)
     {
-        var variables = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+        var variables = new Dictionary<string, decimal>
         {
             ["h"] = 3000,
             ["n"] = 2,
-            ["floorHeight"] = 3000,
-            ["wallThickness"] = 200,
+            ["floorheight"] = 3000,
+            ["wallthickness"] = 200,
             ["count"] = 1
         };
 
@@ -189,15 +191,101 @@ internal sealed class AddComponentRuleForm : Form
 
         foreach (var parameter in projectParams.CustomParameters)
         {
-            variables[parameter.Key] = parameter.Value;
+            if (!string.IsNullOrWhiteSpace(parameter.Key))
+            {
+                variables[NormalizeParameterKey(parameter.Key)] = parameter.Value;
+            }
+        }
+
+        var system = _productSystems
+            .FirstOrDefault(system => string.Equals(system.Name, _systemName.Text, StringComparison.OrdinalIgnoreCase));
+        if (system is not null)
+        {
+            foreach (var parameter in system.Parameters)
+            {
+                if (!string.IsNullOrWhiteSpace(parameter.Key) && !variables.ContainsKey(NormalizeParameterKey(parameter.Key)))
+                {
+                    variables[NormalizeParameterKey(parameter.Key)] = parameter.DefaultValue == 0 ? 1 : parameter.DefaultValue;
+                }
+            }
+
+            foreach (var rule in system.Rules)
+            {
+                if (string.IsNullOrWhiteSpace(rule.ReferenceCode))
+                {
+                    continue;
+                }
+
+                var referenceCode = rule.ReferenceCode.Trim();
+                variables.TryAdd(referenceCode, 1);
+                variables.TryAdd($"{referenceCode}_raw", 1);
+                variables.TryAdd($"{referenceCode}_count", 1);
+                variables.TryAdd($"{referenceCode}_qty", 1);
+            }
         }
 
         return variables;
     }
 
-    private static string ParameterHelpText()
+    private static string NormalizeParameterKey(string key) => key.Trim().ToLowerInvariant();
+
+    private void UpdateParameterHelp()
     {
-        return "count=图块数量；L/H/S 等为当前体系自定义参数\r\nh=模板总高度mm，n=模板段数，h1/h2...=每段模板高度mm";
+        var system = _productSystems
+            .FirstOrDefault(system => string.Equals(system.Name, _systemName.Text, StringComparison.OrdinalIgnoreCase));
+        var parameters = system?.Parameters ?? [];
+        var componentReferences = system?.Rules
+            .Where(rule => !string.IsNullOrWhiteSpace(rule.ReferenceCode))
+            .Select(rule => $"{rule.ReferenceCode.Trim()}={rule.ComponentName}")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+
+        var help = SystemParameterDisplayFormatter.FormatFormulaHelp(parameters);
+        if (componentReferences.Count > 0)
+        {
+            help += "\r\n" + string.Join("\r\n", componentReferences);
+        }
+
+        _parameterHelp.Text = help;
+    }
+
+    private string ResolveReferenceCode()
+    {
+        if (!string.IsNullOrWhiteSpace(Rule.ReferenceCode))
+        {
+            return Rule.ReferenceCode.Trim();
+        }
+
+        var system = _productSystems
+            .FirstOrDefault(system => string.Equals(system.Name, _systemName.Text, StringComparison.OrdinalIgnoreCase));
+        var usedCodes = system?.Rules
+            .Where(rule => !string.Equals(rule.Id, Rule.Id, StringComparison.OrdinalIgnoreCase))
+            .Select(rule => rule.ReferenceCode)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+
+        for (var index = 0; ; index++)
+        {
+            var code = ToSpreadsheetColumnName(index);
+            if (!usedCodes.Contains(code))
+            {
+                return code;
+            }
+        }
+    }
+
+    private static string ToSpreadsheetColumnName(int zeroBasedIndex)
+    {
+        var value = zeroBasedIndex + 1;
+        var chars = new Stack<char>();
+        while (value > 0)
+        {
+            value--;
+            chars.Push((char)('A' + value % 26));
+            value /= 26;
+        }
+
+        return new string(chars.ToArray());
     }
 
     private static ComponentRule Clone(ComponentRule rule)
@@ -209,6 +297,7 @@ internal sealed class AddComponentRuleForm : Form
             GroupName = string.IsNullOrWhiteSpace(rule.GroupName) ? "主体构件" : rule.GroupName,
             BlockName = rule.BlockName,
             ComponentName = string.IsNullOrWhiteSpace(rule.ComponentName) ? rule.BlockName : rule.ComponentName,
+            ReferenceCode = rule.ReferenceCode,
             Unit = rule.Unit,
             BaseQtyPerBlock = 1,
             CalculationMode = "Formula",
@@ -219,6 +308,24 @@ internal sealed class AddComponentRuleForm : Form
             Source = rule.Source,
             UpdatedAt = rule.UpdatedAt,
             IsModified = rule.IsModified
+        };
+    }
+
+    private static ProductSystem CloneSystem(ProductSystem system)
+    {
+        return new ProductSystem
+        {
+            Id = system.Id,
+            Name = string.IsNullOrWhiteSpace(system.Name) ? "默认体系" : system.Name,
+            Parameters = system.Parameters.Select(parameter => new SystemParameterDefinition
+            {
+                Key = parameter.Key,
+                Name = parameter.Name,
+                Unit = parameter.Unit,
+                DefaultValue = parameter.DefaultValue,
+                Description = parameter.Description
+            }).ToList(),
+            Rules = system.Rules.Select(Clone).ToList()
         };
     }
 }
