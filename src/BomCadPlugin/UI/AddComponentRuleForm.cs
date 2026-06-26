@@ -180,6 +180,7 @@ internal sealed class AddComponentRuleForm : Form
             ["h"] = 3000,
             ["n"] = 2,
             ["floorheight"] = 3000,
+            ["t"] = 200,
             ["wallthickness"] = 200,
             ["count"] = 1
         };

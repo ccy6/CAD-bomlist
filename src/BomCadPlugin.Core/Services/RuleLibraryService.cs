@@ -153,6 +153,7 @@ public sealed class RuleLibraryService
         foreach (var system in library.ProductSystems)
         {
             EnsureReferenceCodes(system.Rules);
+            system.Rules = ComponentRuleOrderingService.OrderForDisplay(system.Rules);
         }
 
         library.Rules = library.ProductSystems
@@ -179,7 +180,7 @@ public sealed class RuleLibraryService
             .Select(parameter => new
             {
                 Original = parameter.Key.Trim(),
-                Normalized = NormalizeParameterKey(parameter.Key)
+                Normalized = NormalizeSystemParameterKey(parameter.Key)
             })
             .Where(parameter => !string.Equals(parameter.Original, parameter.Normalized, StringComparison.Ordinal))
             .GroupBy(parameter => parameter.Original, StringComparer.Ordinal)
@@ -191,6 +192,7 @@ public sealed class RuleLibraryService
             .GroupBy(parameter => parameter.Key, StringComparer.Ordinal)
             .Select(group => group.Last())
             .ToList();
+        EnsureBuiltInParameters(system.Parameters);
 
         foreach (var rule in system.Rules)
         {
@@ -202,14 +204,48 @@ public sealed class RuleLibraryService
 
     private static SystemParameterDefinition NormalizeParameter(SystemParameterDefinition parameter)
     {
-        parameter.Key = NormalizeParameterKey(parameter.Key);
+        parameter.Key = NormalizeSystemParameterKey(parameter.Key);
         parameter.Name = string.IsNullOrWhiteSpace(parameter.Name) ? parameter.Key : parameter.Name.Trim();
         parameter.Unit = parameter.Unit?.Trim() ?? "";
         parameter.Description = parameter.Description?.Trim() ?? "";
         return parameter;
     }
 
+    private static void EnsureBuiltInParameters(List<SystemParameterDefinition> parameters)
+    {
+        AddBuiltInParameter(parameters, "t", "墙厚", "mm", "项目参数中的墙厚");
+        AddBuiltInParameter(parameters, "n", "模板块数", "块", "模板高度列表中的竖向模板块数");
+    }
+
+    private static void AddBuiltInParameter(List<SystemParameterDefinition> parameters, string key, string name, string unit, string description)
+    {
+        var existing = parameters.FirstOrDefault(parameter => string.Equals(parameter.Key, key, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            existing.Key = key;
+            existing.Name = string.IsNullOrWhiteSpace(existing.Name) ? name : existing.Name;
+            existing.Unit = string.IsNullOrWhiteSpace(existing.Unit) ? unit : existing.Unit;
+            existing.Description = string.IsNullOrWhiteSpace(existing.Description) ? description : existing.Description;
+            return;
+        }
+
+        parameters.Add(new SystemParameterDefinition
+        {
+            Key = key,
+            Name = name,
+            Unit = unit,
+            DefaultValue = 0,
+            Description = description
+        });
+    }
+
     private static string NormalizeParameterKey(string key) => key.Trim().ToLowerInvariant();
+
+    private static string NormalizeSystemParameterKey(string key)
+    {
+        var normalized = NormalizeParameterKey(key);
+        return string.Equals(normalized, "wallthickness", StringComparison.OrdinalIgnoreCase) ? "t" : normalized;
+    }
 
     private static string RewriteFormulaIdentifiers(string formula, IReadOnlyDictionary<string, string> replacements)
     {

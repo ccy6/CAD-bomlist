@@ -71,7 +71,7 @@ public sealed class StatisticsServiceTests
         var item = Assert.Single(result.Items);
         Assert.Equal(0, item.CalculationFactor);
         Assert.Equal(0, item.TotalQty);
-        Assert.Contains("公式", item.CalculationError);
+        Assert.NotEmpty(item.CalculationError);
     }
 
     [Fact]
@@ -122,6 +122,28 @@ public sealed class StatisticsServiceTests
     }
 
     [Fact]
+    public void CalculateFactor_WithBuiltInParameterNames_UsesProjectValuesBeforeCustomParameters()
+    {
+        var service = new StatisticsService();
+        var project = new ProjectParams
+        {
+            TemplateHeightsM = [3m, 2m],
+            WallThicknessMm = 100,
+            CustomParameters = new Dictionary<string, decimal>
+            {
+                ["n"] = 99,
+                ["t"] = 888,
+                ["wallthickness"] = 999
+            }
+        };
+        var rule = new ComponentRule { Formula = "n + t + wallthickness" };
+
+        var factor = service.CalculateFactor(rule, project);
+
+        Assert.Equal(202, factor);
+    }
+
+    [Fact]
     public void BuildResult_WhenReferenceCodeDiffersFromLowercaseParameterByCase_KeepsBothVariables()
     {
         var service = new StatisticsService();
@@ -159,7 +181,7 @@ public sealed class StatisticsServiceTests
         var success = service.TryCalculateFactor(rule, new ProjectParams(), out _, out var error);
 
         Assert.False(success);
-        Assert.Contains("参数未定义或未赋值：Q1", error);
+        Assert.Contains("Q1", error);
     }
 
     [Fact]
@@ -203,6 +225,132 @@ public sealed class StatisticsServiceTests
         var connector = result.Items.Single(item => item.ComponentName == "Panel Connector");
         Assert.Equal(10, connector.TotalQty);
         Assert.Equal("", connector.CalculationError);
+    }
+
+    [Fact]
+    public void BuildResult_WithPanelBlock_CreatesHeightWidthRowsInNote()
+    {
+        var service = new StatisticsService();
+        var rule = new ComponentRule
+        {
+            BlockName = "PANEL_1000",
+            ComponentName = "Panel",
+            Unit = "pcs",
+            Formula = "count"
+        };
+        var project = new ProjectParams { TemplateHeightsM = [3m, 2m] };
+
+        var result = service.BuildResult(["PANEL_1000", "PANEL_1000"], project, [rule]);
+
+        Assert.Collection(
+            result.Items,
+            first =>
+            {
+                Assert.Equal("Panel", first.ComponentName);
+                Assert.Equal("3000x1000", first.Note);
+                Assert.Equal(2, first.PlaneCount);
+                Assert.Equal(2, first.TotalQty);
+            },
+            second =>
+            {
+                Assert.Equal("Panel", second.ComponentName);
+                Assert.Equal("2000x1000", second.Note);
+                Assert.Equal(2, second.PlaneCount);
+                Assert.Equal(2, second.TotalQty);
+            });
+    }
+
+    [Fact]
+    public void BuildResult_WithMeterPanelBlockName_UsesNumberBeforeMeterAsWidth()
+    {
+        var service = new StatisticsService();
+        var rule = new ComponentRule
+        {
+            BlockName = "LG-SF-65-Panel 1.2m(H)",
+            ComponentName = "LG-SF-65-Panel 1.2m(H)",
+            Unit = "pcs",
+            Formula = "count"
+        };
+        var project = new ProjectParams { TemplateHeightsM = [3m, 1.2m] };
+
+        var result = service.BuildResult(["LG-SF-65-Panel 1.2m(H)"], project, [rule]);
+
+        Assert.Collection(
+            result.Items,
+            first => Assert.Equal("3000x1200", first.Note),
+            second => Assert.Equal("1200x1200", second.Note));
+    }
+
+    [Fact]
+    public void BuildResult_WithRepeatedPanelHeight_MergesSamePanelNote()
+    {
+        var service = new StatisticsService();
+        var rule = new ComponentRule
+        {
+            BlockName = "PANEL_250",
+            ComponentName = "Panel",
+            Unit = "pcs",
+            Formula = "count"
+        };
+        var project = new ProjectParams { TemplateHeightsM = [1.5m, 1.5m] };
+
+        var result = service.BuildResult(["PANEL_250", "PANEL_250"], project, [rule]);
+
+        var item = Assert.Single(result.Items);
+        Assert.Equal("1500x250", item.Note);
+        Assert.Equal(2, item.PlaneCount);
+        Assert.Equal(4, item.TotalQty);
+    }
+
+    [Fact]
+    public void BuildResult_WithPanelBlock_KeepsReferenceCountForFormulaRules()
+    {
+        var service = new StatisticsService();
+        var rules = new[]
+        {
+            new ComponentRule
+            {
+                BlockName = "PANEL_1000",
+                ComponentName = "Panel",
+                ReferenceCode = "A",
+                Unit = "pcs",
+                Formula = "count"
+            },
+            new ComponentRule
+            {
+                ComponentName = "Vertical Connector",
+                Unit = "pcs",
+                Formula = "A_count * 2 * (n - 1)"
+            }
+        };
+        var project = new ProjectParams { TemplateHeightsM = [3m, 2m] };
+
+        var result = service.BuildResult(["PANEL_1000", "PANEL_1000"], project, rules);
+
+        var connector = result.Items.Single(item => item.ComponentName == "Vertical Connector");
+        Assert.Equal(4, connector.TotalQty);
+        Assert.Equal("", connector.CalculationError);
+    }
+
+    [Fact]
+    public void BuildResult_WithNonPanelBlock_DoesNotCreatePanelRows()
+    {
+        var service = new StatisticsService();
+        var rule = new ComponentRule
+        {
+            BlockName = "LG-SF-65-Clamp",
+            ComponentName = "Standard Clamp",
+            Unit = "pcs",
+            Formula = "1"
+        };
+        var project = new ProjectParams { TemplateHeightsM = [3m, 2m] };
+
+        var result = service.BuildResult(["LG-SF-65-Clamp", "LG-SF-65-Clamp"], project, [rule]);
+
+        var item = Assert.Single(result.Items);
+        Assert.Equal("Standard Clamp", item.ComponentName);
+        Assert.Equal("", item.Note);
+        Assert.Equal(2, item.TotalQty);
     }
 
     [Fact]

@@ -176,7 +176,9 @@ internal sealed class ProjectParamsForm : Form
         var systemName = _selectedSystem.SelectedItem?.ToString();
         var parameters = _productSystems
             .FirstOrDefault(system => string.Equals(system.Name, systemName, StringComparison.OrdinalIgnoreCase))
-            ?.Parameters ?? [];
+            ?.Parameters
+            .Where(parameter => !IsProjectDerivedParameter(parameter.Key))
+            .ToList() ?? [];
 
         if (parameters.Count == 0)
         {
@@ -256,6 +258,12 @@ internal sealed class ProjectParamsForm : Form
     }
 
     private static string NormalizeParameterKey(string key) => key.Trim().ToLowerInvariant();
+
+    private static bool IsProjectDerivedParameter(string key)
+    {
+        var normalizedKey = NormalizeParameterKey(key);
+        return normalizedKey is "t" or "n" or "wallthickness";
+    }
 
     private static List<decimal> ResolveTemplateHeights(ProjectParams projectParams)
     {

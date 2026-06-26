@@ -50,7 +50,7 @@ public sealed class StatisticsService
                     continue;
                 }
 
-                result.Items.Add(BuildStatItem(item, calculation, ""));
+                result.Items.AddRange(BuildStatItems(item, calculation, "", project));
                 AddReferenceVariables(variables, item, calculation);
                 resolvedThisPass.Add(item);
             }
@@ -70,7 +70,7 @@ public sealed class StatisticsService
         {
             variables["count"] = item.PlaneCount;
             _ = TryEvaluateFormula(item, variables, out var calculation, out var error);
-            result.Items.Add(BuildStatItem(item, calculation, error));
+            result.Items.AddRange(BuildStatItems(item, calculation, error, project));
         }
 
         result.Items = result.Items
@@ -134,6 +134,40 @@ public sealed class StatisticsService
             error = ex.Message;
             return false;
         }
+    }
+
+    private static IReadOnlyList<BomStatItem> BuildStatItems(PendingStatItem pendingItem, FormulaCalculation calculation, string calculationError, ProjectParams project)
+    {
+        var rule = pendingItem.Rule;
+        if (!IsPanelBlock(rule.BlockName))
+        {
+            return [BuildStatItem(pendingItem, calculation, calculationError)];
+        }
+
+        var baseItem = BuildStatItem(pendingItem, calculation, calculationError);
+        var width = TryExtractWidthMm(rule.BlockName, out var widthMm)
+            ? FormatDimensionMm(widthMm)
+            : rule.BlockName.Trim();
+        var heights = ResolveTemplateHeights(project);
+        if (heights.Count == 0)
+        {
+            baseItem.Note = MergeNote(rule.Note, width);
+            return [baseItem];
+        }
+
+        return heights
+            .Select(heightM => heightM * 1000)
+            .Where(heightMm => heightMm > 0)
+            .GroupBy(heightMm => heightMm)
+            .Select(group =>
+            {
+                var item = BuildStatItem(pendingItem, calculation, calculationError);
+                item.Note = MergeNote(rule.Note, $"{FormatDimensionMm(group.Key)}x{width}");
+                item.CalculationFactor = group.Count();
+                item.TotalQty = calculation.RoundedValue * group.Count();
+                return item;
+            })
+            .ToList();
     }
 
     private static BomStatItem BuildStatItem(PendingStatItem pendingItem, FormulaCalculation calculation, string calculationError)
@@ -222,6 +256,7 @@ public sealed class StatisticsService
             ["n"] = heightsM.Count,
             ["h"] = heightsM.Sum(h => h * 1000),
             ["floorheight"] = project.FloorHeightM > 0 ? project.FloorHeightM * 1000 : project.FloorHeightMm,
+            ["t"] = project.WallThicknessMm,
             ["wallthickness"] = project.WallThicknessMm
         };
 
@@ -234,7 +269,7 @@ public sealed class StatisticsService
         {
             if (!string.IsNullOrWhiteSpace(parameter.Key))
             {
-                variables[NormalizeParameterKey(parameter.Key)] = parameter.Value;
+                variables.TryAdd(NormalizeParameterKey(parameter.Key), parameter.Value);
             }
         }
 
@@ -275,6 +310,67 @@ public sealed class StatisticsService
     }
 
     private static string NormalizeBlockName(string blockName) => blockName.Trim();
+
+    private static bool IsPanelBlock(string blockName)
+    {
+        return !string.IsNullOrWhiteSpace(blockName) &&
+               blockName.Contains("Panel", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string MergeNote(string note, string specification)
+    {
+        return string.IsNullOrWhiteSpace(note) ? specification : $"{specification} {note.Trim()}";
+    }
+
+    private static bool TryExtractWidthMm(string blockName, out decimal widthMm)
+    {
+        var meterMatch = System.Text.RegularExpressions.Regex.Match(
+            blockName,
+            @"(?<width>\d+(?:\.\d+)?)\s*m\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (TryParseWidth(meterMatch, out widthMm))
+        {
+            widthMm *= 1000;
+            return true;
+        }
+
+        var panelIndex = blockName.IndexOf("Panel", StringComparison.OrdinalIgnoreCase);
+        var searchText = panelIndex >= 0 ? blockName[(panelIndex + "Panel".Length)..] : blockName;
+        foreach (var match in System.Text.RegularExpressions.Regex.Matches(searchText, @"\d+(?:\.\d+)?").Cast<System.Text.RegularExpressions.Match>())
+        {
+            if (!TryParseWidth(match, out widthMm))
+            {
+                continue;
+            }
+
+            widthMm = widthMm < 20 ? widthMm * 1000 : widthMm;
+            return true;
+        }
+
+        widthMm = 0;
+        return false;
+    }
+
+    private static bool TryParseWidth(System.Text.RegularExpressions.Match match, out decimal width)
+    {
+        width = 0;
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        var value = match.Groups["width"].Success ? match.Groups["width"].Value : match.Value;
+        return decimal.TryParse(value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out width) &&
+               width > 0;
+    }
+
+    private static string FormatDimensionMm(decimal value)
+    {
+        var rounded = Math.Round(value, 4);
+        return rounded == Math.Truncate(rounded)
+            ? rounded.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+            : rounded.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
+    }
 
     private sealed record PendingStatItem(ComponentRule Rule, int PlaneCount, int Index);
 

@@ -480,7 +480,7 @@ internal sealed class ComponentRuleManagerForm : Form
             : Rules.Where(r => string.Equals(r.SystemName, selectedSystem, StringComparison.OrdinalIgnoreCase)).ToList();
 
         _binding.DataSource = null;
-        _binding.DataSource = data;
+        _binding.DataSource = ComponentRuleOrderingService.OrderForDisplay(data);
     }
 
     private void RefreshSystemFilter(string? preferredSystem)

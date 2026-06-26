@@ -121,13 +121,79 @@ public sealed class RuleLibraryServiceTests : IDisposable
 
         var system = Assert.Single(loaded.ProductSystems);
         Assert.Equal("铝模体系", system.Name);
-        var parameter = Assert.Single(system.Parameters);
+        var parameter = Assert.Single(system.Parameters.Where(parameter => parameter.Key == "l"));
         Assert.Equal("l", parameter.Key);
         Assert.Equal("墙长", parameter.Name);
         Assert.Equal("m", parameter.Unit);
         Assert.Single(system.Rules);
         Assert.Equal("PIPE", system.Rules[0].ReferenceCode);
         Assert.Equal("l * 2", system.Rules[0].Formula);
+    }
+
+    [Fact]
+    public void SaveAndLoad_AddsBuiltInParametersToEachProductSystem()
+    {
+        var service = CreateService([]);
+        var library = new RuleLibrary
+        {
+            ProductSystems =
+            [
+                new ProductSystem
+                {
+                    Name = "钢框体系",
+                    Parameters =
+                    [
+                        new SystemParameterDefinition
+                        {
+                            Key = "l",
+                            Name = "墙长",
+                            Unit = "m"
+                        }
+                    ]
+                }
+            ]
+        };
+
+        service.Save(library);
+
+        var loaded = service.LoadOrCreate([]);
+
+        var parameters = loaded.ProductSystems.Single().Parameters;
+        Assert.Contains(parameters, parameter => parameter.Key == "l");
+        Assert.Contains(parameters, parameter => parameter.Key == "t" && parameter.Name == "墙厚" && parameter.Unit == "mm");
+        Assert.Contains(parameters, parameter => parameter.Key == "n" && parameter.Name == "模板块数" && parameter.Unit == "块");
+        Assert.DoesNotContain(parameters, parameter => parameter.Key == "wallthickness");
+    }
+
+    [Fact]
+    public void SaveAndLoad_ConvertsLegacyWallThicknessParameterToT()
+    {
+        var service = CreateService([]);
+        var library = new RuleLibrary
+        {
+            ProductSystems =
+            [
+                new ProductSystem
+                {
+                    Name = "钢框体系",
+                    Parameters =
+                    [
+                        new SystemParameterDefinition
+                        {
+                            Key = "wallthickness",
+                            Name = "墙厚",
+                            Unit = "mm"
+                        }
+                    ]
+                }
+            ]
+        };
+
+        service.Save(library);
+
+        var parameters = service.LoadOrCreate([]).ProductSystems.Single().Parameters;
+        Assert.Contains(parameters, parameter => parameter.Key == "t" && parameter.Name == "墙厚");
+        Assert.DoesNotContain(parameters, parameter => parameter.Key == "wallthickness");
     }
 
     [Fact]
