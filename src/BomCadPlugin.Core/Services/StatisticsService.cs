@@ -19,6 +19,15 @@ public sealed class StatisticsService
             .GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
 
+        var variables = BuildFormulaVariables(project);
+        foreach (var rule in ruleList.Where(rule =>
+                     !string.IsNullOrWhiteSpace(rule.BlockName) &&
+                     !string.IsNullOrWhiteSpace(rule.ReferenceCode) &&
+                     !blockCounts.ContainsKey(NormalizeBlockName(rule.BlockName))))
+        {
+            AddReferenceVariables(variables, new PendingStatItem(rule, 0, 0), new FormulaCalculation(0, 0, 0));
+        }
+
         var pendingItems = new List<PendingStatItem>();
         foreach (var rule in ruleList)
         {
@@ -37,7 +46,6 @@ public sealed class StatisticsService
         }
 
         var result = new BomStatResult();
-        var variables = BuildFormulaVariables(project);
         var unresolved = pendingItems.ToList();
         while (unresolved.Count > 0)
         {
@@ -74,6 +82,7 @@ public sealed class StatisticsService
         }
 
         result.Items = result.Items
+            .Where(item => item.TotalQty != 0 || !string.IsNullOrWhiteSpace(item.CalculationError))
             .OrderBy(item => pendingItems.FindIndex(pending => SameStatItem(pending, item)))
             .ToList();
         return result;

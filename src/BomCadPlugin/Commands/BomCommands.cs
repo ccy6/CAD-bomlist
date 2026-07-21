@@ -19,10 +19,11 @@ public sealed class BomCommands : IExtensionApplication
     private readonly CadTableWriter _cadTableWriter = new();
 
     private static readonly Dictionary<string, BomStatResult> LastResults = new(StringComparer.OrdinalIgnoreCase);
+    private static bool _ribbonEventSubscribed;
 
     public void Initialize()
     {
-        Ribbon.BomRibbon.Create();
+        CreateRibbonWhenReady();
         if (CadDocumentService.TryGetActiveDocument(out var document))
         {
             document.Editor.WriteMessage("\nBOM清单统计 已加载。");
@@ -31,6 +32,40 @@ public sealed class BomCommands : IExtensionApplication
 
     public void Terminate()
     {
+        if (_ribbonEventSubscribed)
+        {
+            Autodesk.Windows.ComponentManager.ItemInitialized -= OnRibbonItemInitialized;
+            _ribbonEventSubscribed = false;
+        }
+    }
+
+    private static void CreateRibbonWhenReady()
+    {
+        if (Autodesk.Windows.ComponentManager.Ribbon is not null)
+        {
+            Ribbon.BomRibbon.Create();
+            return;
+        }
+
+        if (_ribbonEventSubscribed)
+        {
+            return;
+        }
+
+        Autodesk.Windows.ComponentManager.ItemInitialized += OnRibbonItemInitialized;
+        _ribbonEventSubscribed = true;
+    }
+
+    private static void OnRibbonItemInitialized(object? sender, Autodesk.Windows.RibbonItemEventArgs e)
+    {
+        if (Autodesk.Windows.ComponentManager.Ribbon is null)
+        {
+            return;
+        }
+
+        Autodesk.Windows.ComponentManager.ItemInitialized -= OnRibbonItemInitialized;
+        _ribbonEventSubscribed = false;
+        Ribbon.BomRibbon.Create();
     }
 
     [CommandMethod("BOM_PARAMS")]

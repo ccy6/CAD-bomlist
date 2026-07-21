@@ -333,6 +333,32 @@ public sealed class StatisticsServiceTests
     }
 
     [Fact]
+    public void BuildResult_WhenReferencedPanelIsAbsent_HidesZeroQuantityComponent()
+    {
+        var service = new StatisticsService();
+        var rules = new[]
+        {
+            new ComponentRule
+            {
+                BlockName = "LG-SF-65-Panel 1m(H)",
+                ComponentName = "LG-SF-65-Panel 1m(H)",
+                ReferenceCode = "A",
+                Formula = "count"
+            },
+            new ComponentRule
+            {
+                ComponentName = "Heavy Clamp",
+                Formula = "A_count * 2 * (n - 1)"
+            }
+        };
+        var project = new ProjectParams { TemplateHeightsM = [3m, 2m] };
+
+        var result = service.BuildResult([], project, rules);
+
+        Assert.Empty(result.Items);
+    }
+
+    [Fact]
     public void BuildResult_WithNonPanelBlock_DoesNotCreatePanelRows()
     {
         var service = new StatisticsService();
