@@ -178,7 +178,7 @@ internal sealed class ProjectParamsForm : Form
             .FirstOrDefault(system => string.Equals(system.Name, systemName, StringComparison.OrdinalIgnoreCase))
             ?.Parameters
             .Where(parameter => !IsProjectDerivedParameter(parameter.Key))
-            .ToList() ?? [];
+            .ToList() ?? new List<SystemParameterDefinition>();
 
         if (parameters.Count == 0)
         {

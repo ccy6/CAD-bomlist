@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage
+  SchemaVersion="1.0"
+  AutodeskProduct="AutoCAD"
+  ProductType="Application"
+  Name="BomCadPlugin"
+  Description="BOM 清单统计插件"
+  AppVersion="1.0.0"
+  Author="BOMlist"
+  ProductCode="{8DDA91E7-6A51-4D6B-86AB-3456D5C143A1}"
+  UpgradeCode="{2CE3C7E9-BE73-4C6F-B864-F3F9863D56C7}">
+  <CompanyDetails Name="BOMlist" />
+  <Components Description="BomCadPlugin for AutoCAD 2025.">
+    <ComponentEntry
+      AppName="BomCadPlugin-2025"
+      Version="1.0.0"
+      ModuleName="./Contents/Windows/2025/BomCadPlugin.dll"
+      AppDescription="BOM 清单统计插件"
+      LoadOnAutoCADStartup="True"
+      LoadOnCommandInvocation="True">
+      <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R25.0" SeriesMax="R25.0" />
+      <Commands GroupName="BomCadPluginCommands">
+        <Command Global="BOM_PARAMS" Local="BOM_PARAMS" />
+        <Command Global="BOM_ADD_RULE" Local="BOM_ADD_RULE" />
+        <Command Global="BOM_RULES" Local="BOM_RULES" />
+        <Command Global="BOM_STAT" Local="BOM_STAT" />
+        <Command Global="BOM_EXPORT" Local="BOM_EXPORT" />
+        <Command Global="BOM_CLEAR" Local="BOM_CLEAR" />
+        <Command Global="BOM_ABOUT" Local="BOM_ABOUT" />
+      </Commands>
+    </ComponentEntry>
+  </Components>
+</ApplicationPackage>

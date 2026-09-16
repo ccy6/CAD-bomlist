@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <AutoCADVersion Condition="'$(AutoCADVersion)' == ''">2025</AutoCADVersion>
+    <TargetFramework Condition="'$(AutoCADVersion)' == '2025'">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(AutoCADVersion)' != '2025'">net48</TargetFramework>
+    <LangVersion>12.0</LangVersion>
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -10,7 +13,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <AutoCADReferencePath Condition="'$(AutoCADReferencePath)' == ''">C:\1 Software\cad2025\AutoCAD 2025</AutoCADReferencePath>
+    <AutoCADReferencePath Condition="'$(AutoCADReferencePath)' == '' and '$(AutoCADVersion)' == '2025'">C:\1 Software\cad2025\AutoCAD 2025</AutoCADReferencePath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -35,4 +38,16 @@
       <Private>false</Private>
     </Reference>
   </ItemGroup>
+
+  <Target Name="ValidateAutoCADBuildProperties" BeforeTargets="PrepareForBuild">
+    <Error
+      Condition="'$(AutoCADVersion)' != '2018' and '$(AutoCADVersion)' != '2019' and '$(AutoCADVersion)' != '2021' and '$(AutoCADVersion)' != '2025'"
+      Text="Unsupported AutoCADVersion '$(AutoCADVersion)'. Supported build rows are 2018, 2019, 2021, and 2025." />
+    <Error
+      Condition="'$(AutoCADReferencePath)' == '' or !Exists('$(AutoCADReferencePath)')"
+      Text="AutoCAD $(AutoCADVersion) reference directory was not found: '$(AutoCADReferencePath)'. Pass -p:AutoCADReferencePath=&quot;path to the matching AutoCAD installation&quot;." />
+    <Error
+      Condition="!Exists('$(AutoCADReferencePath)\AcMgd.dll') or !Exists('$(AutoCADReferencePath)\AcDbMgd.dll') or !Exists('$(AutoCADReferencePath)\AcCoreMgd.dll') or !Exists('$(AutoCADReferencePath)\AdWindows.dll')"
+      Text="AutoCAD $(AutoCADVersion) managed references are incomplete in '$(AutoCADReferencePath)'. Required: AcMgd.dll, AcDbMgd.dll, AcCoreMgd.dll, and AdWindows.dll." />
+  </Target>
 </Project>

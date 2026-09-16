@@ -270,7 +270,7 @@ public sealed class RuleLibraryService
                 i++;
             }
 
-            var identifier = formula[start..i];
+            var identifier = formula.Substring(start, i - start);
             result.Append(replacements.TryGetValue(identifier, out var replacement) ? replacement : identifier);
         }
 
@@ -386,7 +386,7 @@ public sealed class RuleLibraryService
         }
     }
 
-    private static string NextReferenceCode(IReadOnlySet<string> usedCodes)
+    private static string NextReferenceCode(ISet<string> usedCodes)
     {
         for (var index = 0; ; index++)
         {

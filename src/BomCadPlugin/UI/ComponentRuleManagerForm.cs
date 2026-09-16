@@ -27,7 +27,7 @@ internal sealed class ComponentRuleManagerForm : Form
     private readonly BindingSource _binding = new();
 
     public List<ComponentRule> Rules { get; private set; }
-    public List<string> Systems { get; private set; } = [];
+    public List<string> Systems { get; private set; } = new();
     public List<ProductSystem> ProductSystems { get; private set; }
 
     public ComponentRuleManagerForm(IEnumerable<ComponentRule> rules, IEnumerable<string> systems, ProjectParams projectParams, Func<string?> selectBlockName)
@@ -231,7 +231,7 @@ internal sealed class ComponentRuleManagerForm : Form
             ProjectName = _projectParams.ProjectName,
             SelectedSystemName = string.IsNullOrWhiteSpace(systemName) ? _projectParams.SelectedSystemName : systemName,
             FloorHeightM = _projectParams.FloorHeightM,
-            TemplateHeightsM = [.. _projectParams.TemplateHeightsM],
+            TemplateHeightsM = new List<decimal>(_projectParams.TemplateHeightsM),
             WallThicknessMm = _projectParams.WallThicknessMm,
             Note = _projectParams.Note,
             UpdatedAt = _projectParams.UpdatedAt,
@@ -600,15 +600,16 @@ internal sealed class ComponentRuleManagerForm : Form
             return;
         }
 
-        var usedCodes = Rules
-            .Where(existing => string.Equals(existing.SystemName, rule.SystemName, StringComparison.OrdinalIgnoreCase))
-            .Select(existing => existing.ReferenceCode)
-            .Where(code => !string.IsNullOrWhiteSpace(code))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var usedCodes = new HashSet<string>(
+            Rules
+                .Where(existing => string.Equals(existing.SystemName, rule.SystemName, StringComparison.OrdinalIgnoreCase))
+                .Select(existing => existing.ReferenceCode)
+                .Where(code => !string.IsNullOrWhiteSpace(code)),
+            StringComparer.OrdinalIgnoreCase);
         rule.ReferenceCode = NextReferenceCode(usedCodes);
     }
 
-    private static string NextReferenceCode(IReadOnlySet<string> usedCodes)
+    private static string NextReferenceCode(ISet<string> usedCodes)
     {
         for (var index = 0; ; index++)
         {

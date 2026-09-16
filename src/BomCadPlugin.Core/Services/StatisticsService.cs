@@ -204,7 +204,7 @@ public sealed class StatisticsService
         if (!string.IsNullOrWhiteSpace(rule.ReferenceCode))
         {
             var referenceCode = rule.ReferenceCode.Trim();
-            variables.TryAdd(referenceCode, calculation.RawValue);
+            AddIfMissing(variables, referenceCode, calculation.RawValue);
             variables[$"{referenceCode}_raw"] = calculation.RawValue;
             variables[$"{referenceCode}_count"] = item.PlaneCount;
             variables[$"{referenceCode}_qty"] = calculation.RoundedValue;
@@ -278,7 +278,7 @@ public sealed class StatisticsService
         {
             if (!string.IsNullOrWhiteSpace(parameter.Key))
             {
-                variables.TryAdd(NormalizeParameterKey(parameter.Key), parameter.Value);
+                AddIfMissing(variables, NormalizeParameterKey(parameter.Key), parameter.Value);
             }
         }
 
@@ -286,6 +286,14 @@ public sealed class StatisticsService
     }
 
     private static string NormalizeParameterKey(string key) => key.Trim().ToLowerInvariant();
+
+    private static void AddIfMissing(Dictionary<string, decimal> variables, string key, decimal value)
+    {
+        if (!variables.ContainsKey(key))
+        {
+            variables.Add(key, value);
+        }
+    }
 
     private static bool FormulaUsesCount(string formula)
     {
@@ -308,7 +316,7 @@ public sealed class StatisticsService
                 i++;
             }
 
-            var identifier = formula[start..i];
+            var identifier = formula.Substring(start, i - start);
             if (string.Equals(identifier, "count", StringComparison.Ordinal))
             {
                 return true;
@@ -323,7 +331,7 @@ public sealed class StatisticsService
     private static bool IsPanelBlock(string blockName)
     {
         return !string.IsNullOrWhiteSpace(blockName) &&
-               blockName.Contains("Panel", StringComparison.OrdinalIgnoreCase);
+               blockName.IndexOf("Panel", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private static string MergeNote(string note, string specification)
@@ -344,7 +352,7 @@ public sealed class StatisticsService
         }
 
         var panelIndex = blockName.IndexOf("Panel", StringComparison.OrdinalIgnoreCase);
-        var searchText = panelIndex >= 0 ? blockName[(panelIndex + "Panel".Length)..] : blockName;
+        var searchText = panelIndex >= 0 ? blockName.Substring(panelIndex + "Panel".Length) : blockName;
         foreach (var match in System.Text.RegularExpressions.Regex.Matches(searchText, @"\d+(?:\.\d+)?").Cast<System.Text.RegularExpressions.Match>())
         {
             if (!TryParseWidth(match, out widthMm))
@@ -381,7 +389,35 @@ public sealed class StatisticsService
             : rounded.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    private sealed record PendingStatItem(ComponentRule Rule, int PlaneCount, int Index);
+    private sealed class PendingStatItem
+    {
+        public PendingStatItem(ComponentRule rule, int planeCount, int index)
+        {
+            Rule = rule;
+            PlaneCount = planeCount;
+            Index = index;
+        }
 
-    private sealed record FormulaCalculation(decimal RawValue, decimal RoundedValue, decimal CalculationFactor);
+        public ComponentRule Rule { get; }
+
+        public int PlaneCount { get; }
+
+        public int Index { get; }
+    }
+
+    private sealed class FormulaCalculation
+    {
+        public FormulaCalculation(decimal rawValue, decimal roundedValue, decimal calculationFactor)
+        {
+            RawValue = rawValue;
+            RoundedValue = roundedValue;
+            CalculationFactor = calculationFactor;
+        }
+
+        public decimal RawValue { get; }
+
+        public decimal RoundedValue { get; }
+
+        public decimal CalculationFactor { get; }
+    }
 }

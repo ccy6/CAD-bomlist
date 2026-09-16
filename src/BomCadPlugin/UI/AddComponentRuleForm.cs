@@ -41,7 +41,7 @@ internal sealed class AddComponentRuleForm : Form
 
         _systemName.Items.AddRange(_productSystems.Select(system => system.Name).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase).Cast<object>().ToArray());
         _systemName.Text = _systemName.Items.Count > 0 ? _systemName.Items[0]?.ToString() : "默认体系";
-        _unit.Items.AddRange(["个", "根", "套", "块", "件", "米", "m"]);
+        _unit.Items.AddRange(new object[] { "个", "根", "套", "块", "件", "米", "m" });
         _unit.Text = "个";
         _systemName.TextChanged += (_, _) => UpdateParameterHelp();
         _formula.TextChanged += (_, _) => UpdatePreview();
@@ -218,10 +218,10 @@ internal sealed class AddComponentRuleForm : Form
                 }
 
                 var referenceCode = rule.ReferenceCode.Trim();
-                variables.TryAdd(referenceCode, 1);
-                variables.TryAdd($"{referenceCode}_raw", 1);
-                variables.TryAdd($"{referenceCode}_count", 1);
-                variables.TryAdd($"{referenceCode}_qty", 1);
+                AddIfMissing(variables, referenceCode, 1);
+                AddIfMissing(variables, $"{referenceCode}_raw", 1);
+                AddIfMissing(variables, $"{referenceCode}_count", 1);
+                AddIfMissing(variables, $"{referenceCode}_qty", 1);
             }
         }
 
@@ -230,16 +230,24 @@ internal sealed class AddComponentRuleForm : Form
 
     private static string NormalizeParameterKey(string key) => key.Trim().ToLowerInvariant();
 
+    private static void AddIfMissing(Dictionary<string, decimal> variables, string key, decimal value)
+    {
+        if (!variables.ContainsKey(key))
+        {
+            variables.Add(key, value);
+        }
+    }
+
     private void UpdateParameterHelp()
     {
         var system = _productSystems
             .FirstOrDefault(system => string.Equals(system.Name, _systemName.Text, StringComparison.OrdinalIgnoreCase));
-        var parameters = system?.Parameters ?? [];
+        var parameters = system?.Parameters ?? new List<SystemParameterDefinition>();
         var componentReferences = system?.Rules
             .Where(rule => !string.IsNullOrWhiteSpace(rule.ReferenceCode))
             .Select(rule => $"{rule.ReferenceCode.Trim()}={rule.ComponentName}")
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList() ?? [];
+            .ToList() ?? new List<string>();
 
         var help = SystemParameterDisplayFormatter.FormatFormulaHelp(parameters);
         if (componentReferences.Count > 0)
@@ -259,11 +267,12 @@ internal sealed class AddComponentRuleForm : Form
 
         var system = _productSystems
             .FirstOrDefault(system => string.Equals(system.Name, _systemName.Text, StringComparison.OrdinalIgnoreCase));
-        var usedCodes = system?.Rules
-            .Where(rule => !string.Equals(rule.Id, Rule.Id, StringComparison.OrdinalIgnoreCase))
-            .Select(rule => rule.ReferenceCode)
-            .Where(code => !string.IsNullOrWhiteSpace(code))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+        var usedCodes = new HashSet<string>(
+            system?.Rules
+                .Where(rule => !string.Equals(rule.Id, Rule.Id, StringComparison.OrdinalIgnoreCase))
+                .Select(rule => rule.ReferenceCode)
+                .Where(code => !string.IsNullOrWhiteSpace(code)) ?? Enumerable.Empty<string>(),
+            StringComparer.OrdinalIgnoreCase);
 
         for (var index = 0; ; index++)
         {

@@ -16,10 +16,11 @@ public static class SystemParameterKeySuggestionService
             return "";
         }
 
-        var usedKeys = existingKeys
-            .Where(existingKey => !string.IsNullOrWhiteSpace(existingKey))
-            .Select(existingKey => existingKey.Trim().ToLowerInvariant())
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var usedKeys = new HashSet<string>(
+            existingKeys
+                .Where(existingKey => !string.IsNullOrWhiteSpace(existingKey))
+                .Select(existingKey => existingKey.Trim().ToLowerInvariant()),
+            StringComparer.OrdinalIgnoreCase);
         var baseKey = TrimTrailingDigits(key);
         var index = 1;
         var candidate = $"{baseKey}{index}";
@@ -41,6 +42,6 @@ public static class SystemParameterKeySuggestionService
             index--;
         }
 
-        return index == 0 ? key : key[..index];
+        return index == 0 ? key : key.Substring(0, index);
     }
 }

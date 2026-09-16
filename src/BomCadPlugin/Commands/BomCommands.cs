@@ -315,7 +315,7 @@ public sealed class BomCommands : IExtensionApplication
             ProjectName = project.ProjectName,
             SelectedSystemName = project.SelectedSystemName,
             FloorHeightM = project.FloorHeightM,
-            TemplateHeightsM = [.. project.TemplateHeightsM],
+            TemplateHeightsM = new List<decimal>(project.TemplateHeightsM),
             WallThicknessMm = project.WallThicknessMm,
             Note = project.Note,
             UpdatedAt = project.UpdatedAt,

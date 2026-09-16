@@ -142,7 +142,7 @@ public sealed class FormulaExpressionEvaluator
             throw new FormatException("公式格式不正确。");
         }
 
-        var text = _expression[start.._position];
+        var text = _expression.Substring(start, _position - start);
         return decimal.Parse(text, CultureInfo.InvariantCulture);
     }
 
@@ -154,7 +154,7 @@ public sealed class FormulaExpressionEvaluator
             _position++;
         }
 
-        return _expression[start.._position];
+        return _expression.Substring(start, _position - start);
     }
 
     private static decimal EvaluateFunction(string name, List<decimal> args)

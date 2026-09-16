@@ -10,7 +10,7 @@ namespace BomCadPlugin.Services;
 
 internal sealed class CadTableWriter
 {
-    private static readonly double[] ColumnWidths = [12, 42, 52, 12, 22, 22, 24, 48];
+    private static readonly double[] ColumnWidths = { 12, 42, 52, 12, 22, 22, 24, 48 };
 
     public bool InsertBomTable(BomStatResult result, ProjectParams project)
     {
