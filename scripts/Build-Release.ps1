@@ -126,8 +126,8 @@ function Invoke-PluginBuild {
         "-p:OutputPath=$outputPath"
     )
 
-    Write-Output "Building AutoCAD $Version with references from '$ReferencePath'..."
-    & dotnet @arguments
+    Write-Host "Building AutoCAD $Version with references from '$ReferencePath'..."
+    & dotnet @arguments | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "AutoCAD $Version build failed with exit code $LASTEXITCODE."
     }
