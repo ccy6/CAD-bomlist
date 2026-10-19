@@ -1,0 +1,39 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "BomCadPlugin/1.0.0": {
+        "dependencies": {
+          "BomCadPlugin.Core": "1.0.0"
+        },
+        "runtime": {
+          "BomCadPlugin.dll": {}
+        }
+      },
+      "BomCadPlugin.Core/1.0.0": {
+        "runtime": {
+          "BomCadPlugin.Core.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "BomCadPlugin/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "BomCadPlugin.Core/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

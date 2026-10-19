@@ -1,0 +1,6 @@
+# Preserve the exact bytes of packaged files and the exported user data.
+/dist/** -text whitespace=cr-at-eol
+/bin/** -text whitespace=cr-at-eol
+/artifacts/** -text whitespace=cr-at-eol
+/userdata/** -text whitespace=cr-at-eol
+*.cmd text eol=crlf

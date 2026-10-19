@@ -1,0 +1,1 @@
+1 文件夹解压 放到   C:\ProgramData\Autodesk\ApplicationPlugins   重启CAD

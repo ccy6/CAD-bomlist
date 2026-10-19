@@ -1,0 +1,41 @@
+BomCadPlugin BOM 清单统计插件 — 安装说明（AutoCAD 2025 专用）
+================================================================
+
+【适用环境】
+- AutoCAD 2025 完整版
+- 不支持 AutoCAD 2018~2024 / LT 版（旧版本适配开发中）
+
+【安装步骤（推荐：自动加载，和之前一样）】
+1. 把整个 BomCadPlugin-2025.bundle 文件夹复制到目标电脑的：
+   C:\ProgramData\Autodesk\ApplicationPlugins\
+   （ProgramData 是隐藏文件夹，可直接在资源管理器地址栏输入路径进入；
+     若目标电脑多个用户都要用，放这里最合适）
+2. 重启 AutoCAD，插件自动加载。
+   加载成功后顶部出现"BOM清单统计"功能区（Ribbon）。
+   该位置 AutoCAD 默认信任，无需额外设置。
+
+【备用：单用户安装】
+复制到 %APPDATA%\Autodesk\ApplicationPlugins\（只对当前用户生效），重启 CAD。
+
+【备用：手动加载（临时用）】
+命令行执行 NETLOAD，选择：
+   ...\BomCadPlugin-2025.bundle\Contents\Windows\BomCadPlugin.dll
+（每次重启 CAD 后需重新加载）
+
+【可用命令】
+BOM_PARAMS    设置/查看参数
+BOM_ADD_RULE  添加构件规则
+BOM_RULES     管理构件规则
+BOM_STAT      统计选中的图块（BOM 算量）
+BOM_EXPORT    导出 CSV
+BOM_CLEAR     清除统计结果
+BOM_ABOUT     关于
+
+【常见问题】
+- 复制/解压过来的 DLL 被锁定：右键文件→属性→勾选"解除锁定"→确定。
+- 更新插件：用新文件覆盖 Contents\Windows 下的同名文件后重启 CAD 即可。
+- 加载失败看命令行提示；SECURELOAD 报错说明放的位置不对，须在
+  ApplicationPlugins 目录内。
+
+【卸载】
+删除 BomCadPlugin-2025.bundle 文件夹，重启 CAD 即可。

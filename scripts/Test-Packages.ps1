@@ -1,10 +1,13 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [string] $DistPath = (Join-Path $PSScriptRoot '..\dist')
+    [string] $DistPath
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($DistPath)) {
+    $DistPath = Join-Path $PSScriptRoot '..\dist'
+}
 
 function Assert-Condition {
     param(
